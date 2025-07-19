@@ -18,17 +18,18 @@ public class Main {
           serverSocket.setReuseAddress(true);
           // Wait for connection from client.
           clientSocket = serverSocket.accept();
-          InputStream in = clientSocket.getInputStream();
-          BufferedReader reader = new BufferedReader(new InputStreamReader(in));
-          OutputStream outputStream = clientSocket.getOutputStream();
-          String line1 = reader.readLine();
-          String line2 = reader.readLine();
-          String line3 = reader.readLine();
-          if("PING".equals(line3)){
-              outputStream.write("+PONG\r\n".getBytes());
-              outputStream.flush();
+          while(!clientSocket.isClosed()){
+              InputStream in = clientSocket.getInputStream();
+              BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+              OutputStream outputStream = clientSocket.getOutputStream();
+              String line1 = reader.readLine();
+              String line2 = reader.readLine();
+              String line3 = reader.readLine();
+              if("PING".equals(line3)){
+                  outputStream.write("+PONG\r\n".getBytes());
+                  outputStream.flush();
+              }
           }
-
             clientSocket.close();
         } catch (IOException e) {
           System.out.println("IOException: " + e.getMessage());
