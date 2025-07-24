@@ -1,58 +1,85 @@
-import java.io.*;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
-
-class ClientHandler extends Thread {
-    public final Socket clientsocket;
-
-    ClientHandler(Socket clientsocket) {
-        this.clientsocket = clientsocket;
-    }
-
-    public void run () {
-        try(InputStream inputStream = clientsocket.getInputStream();
-             BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-             OutputStream outputStream = clientsocket.getOutputStream()
-        ){
-            String inputLine;
-            while((inputLine=reader.readLine())!=null){
-                if ("PING".equals(inputLine)) {
-                    outputStream.write("+PONG\r\n".getBytes());
-                    outputStream.flush();
-                }
-
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }finally {
-            try{
-                clientsocket.close();
-            }catch (IOException e){};
-        }
-    }
-}
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.*;
+import java.util.Iterator;
+import java.util.Set;
 
 public class Main {
-  public static void main(String[] args){
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    System.out.println("Logs from your program will appear here!");
+    public static void main(String[] args) throws IOException {
+        int port = 6379;
 
+        // Step 1: Setup non-blocking server socket channel
+        ServerSocketChannel serverChannel = ServerSocketChannel.open();
+        serverChannel.configureBlocking(false);
+        serverChannel.socket().bind(new InetSocketAddress(port));
+        System.out.println("Event-loop server started on port " + port);
 
-    int port = 6379;
-    try (ServerSocket serverSocket = new ServerSocket(port)){
-      serverSocket.setReuseAddress(true);
+        // Step 2: Register server socket with selector for accept events
+        Selector selector = Selector.open();
+        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-      while(true){
-          Socket clientSocket = serverSocket.accept();
+        // Step 3: Event loop
+        while (true) {
+            selector.select(); // Wait until some channels are ready
 
-          ClientHandler handler = new ClientHandler(clientSocket);
-          handler.start();
-      }
+            Set<SelectionKey> selectedKeys = selector.selectedKeys();
+            Iterator<SelectionKey> iter = selectedKeys.iterator();
 
+            while (iter.hasNext()) {
+                SelectionKey key = iter.next();
+                iter.remove(); // Always remove the key once handled
 
-    } catch (IOException e) {
-        throw new RuntimeException(e);
+                // Accept new client connection
+                if (key.isAcceptable()) {
+                    ServerSocketChannel server = (ServerSocketChannel) key.channel();
+                    SocketChannel clientChannel = server.accept();
+
+                    if (clientChannel != null) {
+                        clientChannel.configureBlocking(false);
+                        clientChannel.register(selector, SelectionKey.OP_READ);
+                        System.out.println("Accepted new client: " + clientChannel.getRemoteAddress());
+                    }
+                }
+
+                // Read data from client
+                if (key.isReadable()) {
+                    SocketChannel clientChannel = (SocketChannel) key.channel();
+                    ByteBuffer buffer = ByteBuffer.allocate(1024);
+
+                    int bytesRead = -1;
+                    try {
+                        bytesRead = clientChannel.read(buffer);
+                    } catch (IOException e) {
+                        // Client closed unexpectedly
+                        key.cancel();
+                        clientChannel.close();
+                        continue;
+                    }
+
+                    if (bytesRead == -1) {
+                        // Client closed connection
+                        System.out.println("Client disconnected: " + clientChannel.getRemoteAddress());
+                        key.cancel();
+                        clientChannel.close();
+                        continue;
+                    }
+
+                    // Process the input
+                    buffer.flip();
+                    String input = new String(buffer.array(), 0, buffer.limit()).trim();
+                    System.out.println("Received: " + input);
+
+                    // Handle basic command
+                    if (input.equalsIgnoreCase("PING")) {
+                        String response = "+PONG\r\n";
+                        clientChannel.write(ByteBuffer.wrap(response.getBytes()));
+                    } else {
+                        String response = "-Unknown command\r\n";
+                        clientChannel.write(ByteBuffer.wrap(response.getBytes()));
+                    }
+                }
+            }
+        }
     }
-  }
 }
