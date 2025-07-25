@@ -1,8 +1,12 @@
+import handler.CommandHandler;
+import protocols.RESPParser;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 public class Main {
@@ -70,13 +74,15 @@ public class Main {
                     String input = new String(buffer.array(), 0, buffer.limit()).trim();
                     System.out.println("Received: " + input);
 
-                    // Handle basic command
-                    if (input.equalsIgnoreCase("PING")) {
-                        String response = "+PONG\r\n";
+                    try{
+                        List<String> commandParts = RESPParser.parse(input);
+                        System.out.println("Parsed command: "+commandParts);
+
+                        String response = CommandHandler.handle(commandParts);
                         clientChannel.write(ByteBuffer.wrap(response.getBytes()));
-                    } else {
-                        String response = "-Unknown command\r\n";
-                        clientChannel.write(ByteBuffer.wrap(response.getBytes()));
+
+                    } catch (RuntimeException e) {
+                        throw new RuntimeException(e);
                     }
                 }
             }
