@@ -1,3 +1,4 @@
+import handler.BlockedClientTimeoutChecker;
 import handler.CommandHandler;
 import protocols.RESPParser;
 
@@ -22,6 +23,9 @@ public class Main {
         // Step 2: Register server socket with selector for accept events
         Selector selector = Selector.open();
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+
+        BlockedClientTimeoutChecker timeoutChecker = new BlockedClientTimeoutChecker();
+        timeoutChecker.start();
 
         // Step 3: Event loop
         while (true) {

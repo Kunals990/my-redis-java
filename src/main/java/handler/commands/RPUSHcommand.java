@@ -18,7 +18,6 @@ public class RPUSHcommand implements Command {
         if(args.size()<3) return "-ERR wrong number of arguments for 'RPUSH'\r\n";
 
         String key=args.get(1);
-        String value = args.get(2);
         List<String> values = args.subList(2, args.size());
 
         // Check if any client is blocked on the key

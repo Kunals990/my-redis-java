@@ -16,8 +16,8 @@ public class BLPOPcommand implements Command {
         if (args.size() < 3) return "-ERR wrong number of arguments for 'BLPOP'\r\n";
 
         String key = args.get(1);
-        String timeoutStr = args.get(2);
-        int timeout = Integer.parseInt(timeoutStr);
+        double timeoutSeconds = Double.parseDouble(args.get(2));
+        long timeoutMillis = (long) (timeoutSeconds * 1000);
 
         List<String> list = listStore.getList(key);
 
@@ -27,7 +27,14 @@ public class BLPOPcommand implements Command {
                     "$" + value.length() + "\r\n" + value + "\r\n";
         }
 
-        BlockingClientManager.getInstance().addBlockedClient(key, clientChannel);
+        if (timeoutMillis <= 0) {
+            // Infinite block — store with 0
+            BlockingClientManager.getInstance().addBlockedClient(key, clientChannel);
+        } else {
+            // Timeout-based blocking
+            BlockingClientManager.getInstance().addBlockedClient(key, clientChannel, timeoutMillis);
+        }
+
         return null;
     }
 }
