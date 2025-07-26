@@ -15,7 +15,8 @@ public class CommandHandler {
             "GET", new GetCommand(),
             "RPUSH", new RpushCommand(),
             "LRANGE", new LRANGEcommand(),
-            "LPUSH",new LPUSHcommand()
+            "LPUSH",new LPUSHcommand(),
+            "LLEN",new LLENcommand()
     );
 
     public static String handle(List<String> args) {
