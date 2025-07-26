@@ -1,28 +1,36 @@
 package handler;
 
+import handler.commands.EchoCommand;
+import handler.commands.GetCommand;
+import handler.commands.PingCommand;
+import handler.commands.SetCommand;
+
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class CommandHandler {
+    private static final Map<String, Command> commandMap = new HashMap<>();
 
-    public static String handle(List<String> commandParts) {
-        if (commandParts.isEmpty()) {
+    static {
+        commandMap.put("PING", new PingCommand());
+        commandMap.put("ECHO",new EchoCommand());
+        commandMap.put("SET",new SetCommand());
+        commandMap.put("GET",new GetCommand());
+    }
+
+    public static String handle(List<String> args) {
+        if (args.isEmpty()) {
             return "-ERR Empty command\r\n";
         }
 
-        String command = commandParts.get(0).toUpperCase();
+        String commandName = args.get(0).toUpperCase();
+        Command command = commandMap.get(commandName);
 
-        switch (command) {
-            case "PING":
-                return "+PONG\r\n";
-
-            case "ECHO":
-                if (commandParts.size() < 2) {
-                    return "-ERR wrong number of arguments for 'echo'\r\n";
-                }
-                return "$" + commandParts.get(1).length() + "\r\n" + commandParts.get(1) + "\r\n";
-
-            default:
-                return "-ERR unknown command '" + commandParts.get(0) + "'\r\n";
+        if (command == null) {
+            return "-ERR unknown command '" + commandName + "'\r\n";
         }
+
+        return command.execute(args);
     }
 }
