@@ -20,12 +20,16 @@ public class LPOPcommand implements Command {
         if(list==null || list.isEmpty()) return "$-1\r\n";
 
         int noOfElements = 1;
-        if(args.size()==3){
-            if(Integer.parseInt(args.get(2))<0) return "-ERR value is out of range, must be positive \r\n";
-            noOfElements = Integer.parseInt(args.get(2));
+        if (args.size() == 3) {
+            try {
+                noOfElements = Integer.parseInt(args.get(2));
+                if (noOfElements <= 0) return "-ERR value is out of range, must be positive\r\n";
+            } catch (NumberFormatException e) {
+                return "-ERR invalid number format\r\n";
+            }
         }
 
-        if(noOfElements>list.size()) noOfElements = list.size();
+        noOfElements = Math.min(noOfElements, list.size());
 
         if(noOfElements==1) {
             String element=list.getFirst();
@@ -34,11 +38,9 @@ public class LPOPcommand implements Command {
         }
 
         StringBuilder result = new StringBuilder("*" + noOfElements + "\r\n");
-        while(!list.isEmpty()){
-            String element = list.getFirst();
-            list.removeFirst();
+        for (int i = 0; i < noOfElements; i++) {
+            String element = list.removeFirst();
             result.append("$").append(element.length()).append("\r\n").append(element).append("\r\n");
-
         }
 
         return result.toString();
