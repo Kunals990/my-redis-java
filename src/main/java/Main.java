@@ -78,8 +78,10 @@ public class Main {
                         List<String> commandParts = RESPParser.parse(input);
                         System.out.println("Parsed command: "+commandParts);
 
-                        String response = CommandHandler.handle(commandParts);
-                        clientChannel.write(ByteBuffer.wrap(response.getBytes()));
+                        String response = CommandHandler.handle(commandParts,clientChannel);
+                        if (response != null) {
+                            clientChannel.write(ByteBuffer.wrap(response.getBytes()));
+                        }
 
                     } catch (RuntimeException e) {
                         throw new RuntimeException(e);

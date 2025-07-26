@@ -3,6 +3,7 @@ package handler.commands;
 import handler.Command;
 import store.ListStore;
 
+import java.nio.channels.SocketChannel;
 import java.util.List;
 
 public class LRANGEcommand implements Command {
@@ -10,7 +11,7 @@ public class LRANGEcommand implements Command {
     ListStore listStore = ListStore.getInstance();
 
     @Override
-    public String execute(List<String>args){
+    public String execute(List<String>args, SocketChannel clientChannel){
         if(args.size()<4) return "-ERR wrong number of arguments for 'LRANGE'\r\n";
 
         String key = args.get(1);
