@@ -14,7 +14,7 @@ public class CommandHandler {
         commandMap.put("ECHO",new EchoCommand());
         commandMap.put("SET",new SetCommand());
         commandMap.put("GET",new GetCommand());
-        commandMap.put("RpushCommand",new RpushCommand());
+        commandMap.put("RPUSH",new RpushCommand());
     }
 
     public static String handle(List<String> args) {
