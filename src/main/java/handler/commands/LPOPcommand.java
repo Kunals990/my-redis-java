@@ -20,6 +20,7 @@ public class LPOPcommand implements Command {
 
         if(list==null || list.isEmpty()) return "$-1\r\n";
         String element=list.getFirst();
+        list.removeFirst();
         return "$"+element.length()+"\r\n"+element+"\r\n";
     }
 }
