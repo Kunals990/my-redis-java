@@ -12,15 +12,35 @@ public class LPOPcommand implements Command {
     @Override
     public String execute(List<String> args) {
 
-        if(args.size()<2) return "-ERR wrong number of arguments for 'LLEN'\r\n";
+        if(args.size()<2) return "-ERR wrong number of arguments for 'LPOP'\r\n";
 
         String key = args.get(1);
 
         List<String> list = listStore.getList(key);
-
         if(list==null || list.isEmpty()) return "$-1\r\n";
-        String element=list.getFirst();
-        list.removeFirst();
-        return "$"+element.length()+"\r\n"+element+"\r\n";
+
+        int noOfElements = 1;
+        if(args.size()==3){
+            if(Integer.parseInt(args.get(2))<0) return "-ERR value is out of range, must be positive \r\n";
+            noOfElements = Integer.parseInt(args.get(2));
+        }
+
+        if(noOfElements>list.size()) noOfElements = list.size();
+
+        if(noOfElements==1) {
+            String element=list.getFirst();
+            list.removeFirst();
+            return "$"+element.length()+"\r\n"+element+"\r\n";
+        }
+
+        StringBuilder result = new StringBuilder("*" + noOfElements + "\r\n");
+        while(!list.isEmpty()){
+            String element = list.getFirst();
+            list.removeFirst();
+            result.append("$").append(element.length()).append("\r\n").append(element).append("\r\n");
+
+        }
+
+        return result.toString();
     }
 }
