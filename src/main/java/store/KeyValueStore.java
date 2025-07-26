@@ -11,8 +11,6 @@ public class KeyValueStore {
 
     private final Map<String, ValueWithExpiry> store = new HashMap<>();
 
-    private final Map<String, List<String>> listStore = new HashMap<>();
-
     private KeyValueStore() {}
 
     public static KeyValueStore getInstance() {
@@ -36,11 +34,6 @@ public class KeyValueStore {
             return null;
         }
         return pair.getValue();
-    }
-
-    public String setList(String key,String value){
-        listStore.computeIfAbsent(key, k -> new ArrayList<>()).add(value);
-        return ":"+listStore.get(key).size()+"\r\n";
     }
 
     public void clear() {
