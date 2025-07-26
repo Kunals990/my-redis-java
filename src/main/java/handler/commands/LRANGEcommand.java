@@ -16,20 +16,28 @@ public class LRANGEcommand implements Command {
         String key = args.get(1);
         List<String> list = listStore.getList(key);
 
-        Integer start = Integer.parseInt(args.get(2));
-        Integer stop = Integer.parseInt(args.get(3));
+        if (list == null || list.isEmpty()) return "*0\r\n";
 
-        if(list==null ||list.isEmpty() || start >=list.size() || start>stop) return "*0\r\n";
+        int size = list.size();
+        int start = Integer.parseInt(args.get(2));
+        int stop = Integer.parseInt(args.get(3));
 
-        Integer size = list.size();
-        if(stop>size) {
-            stop=size-1;
-        }
+        // Handle negative indices
+        if (start < 0) start = size + start;
+        if (stop < 0) stop = size + stop;
 
-        StringBuilder result = new StringBuilder("*" + list.size() + "\r\n");
-        for(int i=start;i<=stop;i++){
-            result.append("$").append(list.get(i).length()).append("\r\n");
-            result.append(list.get(i)).append("\r\n");
+        // Clamp indices to bounds
+        start = Math.max(0, start);
+        stop = Math.min(size - 1, stop);
+
+        if (start > stop) return "*0\r\n";
+
+        StringBuilder result = new StringBuilder("*" + (stop - start + 1) + "\r\n");
+
+        for (int i = start; i <= stop; i++) {
+            String element = list.get(i);
+            result.append("$").append(element.length()).append("\r\n");
+            result.append(element).append("\r\n");
         }
 
         return result.toString();
