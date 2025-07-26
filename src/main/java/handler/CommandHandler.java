@@ -1,9 +1,6 @@
 package handler;
 
-import handler.commands.EchoCommand;
-import handler.commands.GetCommand;
-import handler.commands.PingCommand;
-import handler.commands.SetCommand;
+import handler.commands.*;
 
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +14,7 @@ public class CommandHandler {
         commandMap.put("ECHO",new EchoCommand());
         commandMap.put("SET",new SetCommand());
         commandMap.put("GET",new GetCommand());
+        commandMap.put("RpushCommand",new RpushCommand());
     }
 
     public static String handle(List<String> args) {

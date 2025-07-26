@@ -1,14 +1,17 @@
 package store;
 
-import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class KeyValueStore {
     private static final KeyValueStore INSTANCE = new KeyValueStore();
 
     private final Map<String, ValueWithExpiry> store = new HashMap<>();
+
+    private final Map<String, List<String>> listStore = new HashMap<>();
 
     private KeyValueStore() {}
 
@@ -35,7 +38,12 @@ public class KeyValueStore {
         return pair.getValue();
     }
 
+    public String setList(String key,String value){
+        listStore.computeIfAbsent(key, k -> new ArrayList<>()).add(value);
+        return ":"+listStore.get(key).size()+"\r\n";
+    }
+
     public void clear() {
-        store.clear();  // helpful for testing
+        store.clear();
     }
 }
