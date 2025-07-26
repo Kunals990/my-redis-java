@@ -7,7 +7,6 @@ import java.util.Map;
 
 public class KeyValueStore {
     private static final KeyValueStore INSTANCE = new KeyValueStore();
-//    private final Map<String, String> store = new HashMap<>();
 
     private final Map<String,Pair> store = new HashMap<>();
 
@@ -23,15 +22,20 @@ public class KeyValueStore {
     }
 
     public String get(String key) {
-       Integer expiry = store.get(key).expiry;
-       Instant setTime = store.get(key).setTime;
-       Instant currTime = Instant.now();
 
-       long timeDiff = Duration.between(currTime,setTime).toMillis();
-       if(timeDiff>expiry){
-           return null;
-       }
-        return store.get(key).value;
+        Pair pair = store.get(key);
+        if(pair==null) return null;
+
+        if(pair.expiry==-1) return pair.value;
+
+        Instant now = Instant.now();
+        long elapsed = Duration.between(pair.setTime, now).toMillis();
+
+        if (elapsed > pair.expiry) {
+            store.remove(key);
+            return null;
+        }
+        return pair.value;
     }
 
     public void clear() {
