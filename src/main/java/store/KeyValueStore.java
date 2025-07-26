@@ -8,7 +8,7 @@ import java.util.Map;
 public class KeyValueStore {
     private static final KeyValueStore INSTANCE = new KeyValueStore();
 
-    private final Map<String,Pair> store = new HashMap<>();
+    private final Map<String, ValueWithExpiry> store = new HashMap<>();
 
     private KeyValueStore() {}
 
@@ -18,24 +18,21 @@ public class KeyValueStore {
 
     public void set(String key, String value,Integer time) {
         Instant setTime = Instant.now();
-        store.put(key,new Pair(value,time,setTime));
+        store.put(key,new ValueWithExpiry(value,time,setTime));
     }
 
     public String get(String key) {
 
-        Pair pair = store.get(key);
+        ValueWithExpiry pair = store.get(key);
         if(pair==null) return null;
 
-        if(pair.expiry==-1) return pair.value;
+        if(!pair.isExpiryPresent()) return pair.getValue();
 
-        Instant now = Instant.now();
-        long elapsed = Duration.between(pair.setTime, now).toMillis();
-
-        if (elapsed > pair.expiry) {
+        if (pair.isExpired()) {
             store.remove(key);
             return null;
         }
-        return pair.value;
+        return pair.getValue();
     }
 
     public void clear() {
