@@ -16,6 +16,7 @@ public class RpushCommand implements Command {
         if(args.size()<3) return "-ERR wrong number of arguments for 'RPUSH'\r\n";
 
         String key=args.get(1);
+
         List<String> values = args.subList(2, args.size());
         return listStore.appendToList(key,values);
     }
