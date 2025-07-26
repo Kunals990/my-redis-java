@@ -7,16 +7,16 @@ import java.util.List;
 import java.util.Map;
 
 public class CommandHandler {
-    private static final Map<String, Command> commandMap = new HashMap<>();
 
-    static {
-        commandMap.put("PING", new PingCommand());
-        commandMap.put("ECHO",new EchoCommand());
-        commandMap.put("SET",new SetCommand());
-        commandMap.put("GET",new GetCommand());
-        commandMap.put("RPUSH",new RpushCommand());
-        commandMap.put("LRANGE",new LRANGEcommand());
-    }
+    private static final Map<String, Command> commandMap = Map.of(
+            "PING", new PingCommand(),
+            "ECHO", new EchoCommand(),
+            "SET", new SetCommand(),
+            "GET", new GetCommand(),
+            "RPUSH", new RpushCommand(),
+            "LRANGE", new LRANGEcommand(),
+            "LPUSH",new LPUSHcommand()
+    );
 
     public static String handle(List<String> args) {
         if (args.isEmpty()) {

@@ -20,6 +20,14 @@ public class ListStore {
         return ":" + list.size() + "\r\n";
     }
 
+    public String appendToListFront(String key,List<String>values){
+        List<String> list = listStore.computeIfAbsent(key, k -> new ArrayList<>());
+        for (int i = values.size() - 1; i >= 0; i--) {
+            list.add(0, values.get(i));
+        }
+        return ":" + list.size() + "\r\n";
+    }
+
     public List<String> getList(String key) {
         return listStore.getOrDefault(key, Collections.emptyList());
     }
