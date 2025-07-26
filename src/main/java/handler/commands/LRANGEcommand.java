@@ -16,14 +16,23 @@ public class LRANGEcommand implements Command {
         String key = args.get(1);
         List<String> list = listStore.getList(key);
 
-        //wrap in string
-        String result = "*"+list.size()+"\r\n";
-        while(!list.isEmpty()){
-            result += "$"+list.get(0).length()+"\r\n";
-            result +=list.get(0)+"\r\n";
-            list.remove(0);
+        Integer start = Integer.parseInt(args.get(2));
+        Integer stop = Integer.parseInt(args.get(3));
+
+        if(list==null ||list.isEmpty() || start >=list.size() || start>stop) return "*0\r\n";
+
+        Integer size = list.size();
+        if(stop>size) {
+            stop=size-1;
         }
-        return result;
+
+        StringBuilder result = new StringBuilder("*" + list.size() + "\r\n");
+        for(int i=start;i<=stop;i++){
+            result.append("$").append(list.get(i).length()).append("\r\n");
+            result.append(list.get(i)).append("\r\n");
+        }
+
+        return result.toString();
     }
 
 }
