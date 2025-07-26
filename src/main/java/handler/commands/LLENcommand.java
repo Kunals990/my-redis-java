@@ -13,7 +13,7 @@ public class LLENcommand implements Command {
     public String execute(List<String> args) {
         if(args.size()<2) return "-ERR wrong number of arguments for 'LLEN'\r\n";
 
-        String key = args.get(0);
+        String key = args.get(1);
 
         List<String> list = listStore.getList(key);
 
