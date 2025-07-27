@@ -20,6 +20,6 @@ public class TYPEcommand implements Command {
 
         if(value==null) return "+none\r\n";
 
-        return "+"+value.getClass().getSimpleName().toLowerCase()+"\r\n";
+        return "+string\r\n";
     }
 }
