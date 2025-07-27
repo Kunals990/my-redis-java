@@ -26,6 +26,6 @@ public class XADDcommand implements Command {
         }
 
         streamStore.addEntry(streamKey, id, entry);
-        return "+" + id + "\r\n";
+        return "$"+id.length()+"\r\n" + id + "\r\n";
     }
 }
