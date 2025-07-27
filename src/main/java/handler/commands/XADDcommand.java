@@ -73,7 +73,7 @@ public class XADDcommand implements Command {
         for (int i = 3; i < args.size(); i += 2) {
             entry.put(args.get(i), args.get(i + 1));
         }
-
+        id = msTime + "-" + seqNum;
         streamStore.addEntry(streamKey, id, entry);
         return "$"+id.length()+"\r\n" + id + "\r\n";
     }
