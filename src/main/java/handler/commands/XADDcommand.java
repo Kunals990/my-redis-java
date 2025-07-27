@@ -14,8 +14,6 @@ import java.util.Objects;
 public class XADDcommand implements Command {
 
     private final StreamStore streamStore = StreamStore.getInstance();
-    long prevMillisecondsTime=-1;
-    int prevSequenceNumber = -1;
 
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) throws IOException {
@@ -23,8 +21,8 @@ public class XADDcommand implements Command {
 
         String streamKey = args.get(1);
         String id = args.get(2);
-        long msTime;
-        int seqNum;
+        long msTime=System.currentTimeMillis();;
+        int seqNum=0;
         if(Objects.equals(id, "*")){
             msTime=System.currentTimeMillis();
             seqNum=0;
@@ -35,18 +33,30 @@ public class XADDcommand implements Command {
                 return "-ERR Invalid ID format\r\n";
             }
 
-            try {
-                msTime = Long.parseLong(parts[0]);
-                seqNum = Integer.parseInt(parts[1]);
-            } catch (NumberFormatException e) {
-                return "-ERR Invalid ID format\r\n";
+            if(Objects.equals(parts[1], "*")){
+                StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
+                if (lastEntry != null) {
+                    String[] lastParts = lastEntry.getId().split("-");
+                    int lastSeq = Integer.parseInt(lastParts[1]);
+
+                    seqNum=lastSeq+1;
+                }
+            }
+            else{
+                try {
+                    msTime = Long.parseLong(parts[0]);
+                    seqNum = Integer.parseInt(parts[1]);
+                } catch (NumberFormatException e) {
+                    return "-ERR Invalid ID format\r\n";
+                }
+                if (msTime == 0 && seqNum == 0) {
+                    return "-ERR The ID specified in XADD must be greater than 0-0\r\n";
+                }
             }
         }
 
 
-        if (msTime == 0 && seqNum == 0) {
-            return "-ERR The ID specified in XADD must be greater than 0-0\r\n";
-        }
+
 
         StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
         if (lastEntry != null) {
