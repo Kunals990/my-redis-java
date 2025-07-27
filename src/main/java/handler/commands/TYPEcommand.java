@@ -15,7 +15,7 @@ public class TYPEcommand implements Command {
     public String execute(List<String> args, SocketChannel clientChannel) throws IOException {
         if(args.size()<2) return "-ERR wrong number of arguments for 'TYPE'\r\n";
 
-        String key = args.get(1);
+        String key = args.get(1).trim();
         String value = store.get(key);
 
         if(value==null) return "+none\r\n";
