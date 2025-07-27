@@ -26,4 +26,10 @@ public class StreamStore {
     public boolean exists(String key) {
         return streams.containsKey(key);
     }
+
+    public StreamEntry getLastEntry(String streamKey) {
+        List<StreamEntry> entries = streams.get(streamKey);
+        if (entries == null || entries.isEmpty()) return null;
+        return entries.getLast();
+    }
 }

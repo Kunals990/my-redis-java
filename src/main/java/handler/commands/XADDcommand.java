@@ -1,6 +1,7 @@
 package handler.commands;
 
 import handler.Command;
+import store.StreamEntry;
 import store.StreamStore;
 
 import java.io.IOException;
@@ -22,19 +23,34 @@ public class XADDcommand implements Command {
         String streamKey = args.get(1);
         String id = args.get(2);
         String[] parts =id.split("-");
-
-        long millisecondsTime = Integer.parseInt(parts[0]);
-        int sequenceNumber=Integer.parseInt(parts[1]);
-        if(millisecondsTime>prevMillisecondsTime){
-            return "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n";
+        if (parts.length != 2) {
+            return "-ERR Invalid ID format\r\n";
         }
-        if(millisecondsTime==prevMillisecondsTime){
-            if(sequenceNumber<prevSequenceNumber){
+
+        long msTime;
+        int seqNum;
+        try {
+            msTime = Long.parseLong(parts[0]);
+            seqNum = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            return "-ERR Invalid ID format\r\n";
+        }
+
+        if (msTime == 0 && seqNum == 0) {
+            return "-ERR The ID specified in XADD must be greater than 0-0\r\n";
+        }
+
+        StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
+        if (lastEntry != null) {
+            String[] lastParts = lastEntry.getId().split("-");
+            long lastMs = Long.parseLong(lastParts[0]);
+            int lastSeq = Integer.parseInt(lastParts[1]);
+
+            if (msTime < lastMs || (msTime == lastMs && seqNum <= lastSeq)) {
                 return "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n";
             }
         }
-        prevSequenceNumber=sequenceNumber;
-        prevMillisecondsTime=millisecondsTime;
+
         Map<String, String> entry = new LinkedHashMap<>();
         for (int i = 3; i < args.size(); i += 2) {
             entry.put(args.get(i), args.get(i + 1));
