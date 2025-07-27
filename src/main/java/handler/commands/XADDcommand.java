@@ -9,6 +9,7 @@ import java.nio.channels.SocketChannel;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class XADDcommand implements Command {
 
@@ -22,19 +23,26 @@ public class XADDcommand implements Command {
 
         String streamKey = args.get(1);
         String id = args.get(2);
-        String[] parts =id.split("-");
-        if (parts.length != 2) {
-            return "-ERR Invalid ID format\r\n";
-        }
-
         long msTime;
         int seqNum;
-        try {
-            msTime = Long.parseLong(parts[0]);
-            seqNum = Integer.parseInt(parts[1]);
-        } catch (NumberFormatException e) {
-            return "-ERR Invalid ID format\r\n";
+        if(Objects.equals(id, "*")){
+            msTime=System.currentTimeMillis();
+            seqNum=0;
         }
+        else{
+            String[] parts =id.split("-");
+            if (parts.length != 2) {
+                return "-ERR Invalid ID format\r\n";
+            }
+
+            try {
+                msTime = Long.parseLong(parts[0]);
+                seqNum = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException e) {
+                return "-ERR Invalid ID format\r\n";
+            }
+        }
+
 
         if (msTime == 0 && seqNum == 0) {
             return "-ERR The ID specified in XADD must be greater than 0-0\r\n";
