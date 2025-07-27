@@ -9,17 +9,18 @@ import java.util.Map;
 
 public class CommandHandler {
 
-    private static final Map<String, Command> commandMap = Map.of(
-            "PING", new PingCommand(),
-            "ECHO", new EchoCommand(),
-            "SET", new SetCommand(),
-            "GET", new GetCommand(),
-            "RPUSH", new RPUSHcommand(),
-            "LRANGE", new LRANGEcommand(),
-            "LPUSH",new LPUSHcommand(),
-            "LLEN",new LLENcommand(),
-            "LPOP",new LPOPcommand(),
-            "BLPOP",new BLPOPcommand()
+    private static final Map<String, Command> commandMap = Map.ofEntries(
+            Map.entry("PING", new PingCommand()),
+            Map.entry("ECHO", new EchoCommand()),
+            Map.entry("SET", new SetCommand()),
+            Map.entry("GET", new GetCommand()),
+            Map.entry("RPUSH", new RPUSHcommand()),
+            Map.entry("LRANGE", new LRANGEcommand()),
+            Map.entry("LPUSH", new LPUSHcommand()),
+            Map.entry("LLEN", new LLENcommand()),
+            Map.entry("LPOP", new LPOPcommand()),
+            Map.entry("BLPOP", new BLPOPcommand()),
+            Map.entry("TYPE", new TYPEcommand())
     );
 
     public static String handle(List<String> args, SocketChannel clientChannel) throws IOException {
