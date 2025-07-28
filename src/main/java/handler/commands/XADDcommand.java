@@ -96,7 +96,7 @@ public class XADDcommand implements Command {
                         maxSeq = Math.max(maxSeq, seq);
                     }
                 }
-                seqNum = (maxSeq == -1) ? 1 : maxSeq + 1;
+                seqNum = (maxSeq == -1) ? 0 : maxSeq + 1;
 
             } else {
                 try {
