@@ -87,7 +87,6 @@ public class XADDcommand implements Command {
         }
 
         if (isAutoTime && isAutoSeq) {
-            // fully auto
             long now = System.currentTimeMillis();
             msTime = now;
             seqNum = 0;
@@ -97,7 +96,6 @@ public class XADDcommand implements Command {
             }
 
         } else if (isAutoTime) {
-            // auto time, user seq
             int providedSeq;
             try {
                 providedSeq = Integer.parseInt(rawId.split("-")[1]);
@@ -113,7 +111,6 @@ public class XADDcommand implements Command {
             }
 
         } else if (isAutoSeq) {
-            // user time, auto seq
             long candidateMs;
             try {
                 candidateMs = Long.parseLong(rawId.split("-")[0]);
@@ -143,8 +140,6 @@ public class XADDcommand implements Command {
 
         }
         else {
-            // fully specified by user
-            // parse the user’s timestamp/seq
             String[] parts = rawId.split("-");
             long rawMs;
             int  rawSeq;
@@ -155,17 +150,14 @@ public class XADDcommand implements Command {
                 throw new IOException("-ERR Invalid ID format\r\n");
             }
 
-            // 1) Special case: user literally asked for 0-0
             if (rawMs == 0 && rawSeq == 0) {
                 throw new IOException("-ERR The ID specified in XADD must be greater than 0-0\r\n");
             }
 
-            // 2) If the user’s ID is ≤ the stream’s top, block it
             if (lastMs > rawMs || (lastMs == rawMs && lastSeq >= rawSeq)) {
                 throw new IOException("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n");
             }
 
-            // 3) Otherwise it’s valid
             msTime = rawMs;
             seqNum = rawSeq;
         }
