@@ -93,7 +93,7 @@ public class XADDcommand implements Command {
                     }
                 }
 
-                seqNum = maxSeq + 1;
+                seqNum = (maxSeq == -1) ? 1 : maxSeq + 1;
 
             } else {
                 try {
