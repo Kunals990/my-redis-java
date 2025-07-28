@@ -23,6 +23,13 @@ public class BlockingClientManager {
                 .add(new BlockedClient(client, System.currentTimeMillis(), timeoutMillis));
     }
 
+    public synchronized void addBlockedClientForStreams(List<String> keys, SocketChannel client, long timeoutMillis) {
+        for (String key : keys) {
+            blockedClients.computeIfAbsent(key, k -> new LinkedList<>())
+                    .add(new BlockedClient(client, System.currentTimeMillis(), timeoutMillis));
+        }
+    }
+
     // ✅ This is used by RPUSH
     public synchronized SocketChannel getNextBlockedClient(String key) {
         Queue<BlockedClient> queue = blockedClients.getOrDefault(key, new LinkedList<>());

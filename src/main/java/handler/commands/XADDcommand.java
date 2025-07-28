@@ -1,24 +1,27 @@
 package handler.commands;
 
+import handler.BlockingClientManager;
 import handler.Command;
+import protocols.RESPBuilder;
 import store.StreamEntry;
 import store.StreamStore;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 public class XADDcommand implements Command {
 
     private final StreamStore streamStore = StreamStore.getInstance();
+    private final BlockingClientManager blockingManager = BlockingClientManager.getInstance();
+
 
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) throws IOException {
-        if(args.size() < 5 || (args.size() - 3) % 2 != 0)
+        if (args.size() < 5 || (args.size() - 3) % 2 != 0) {
             return "-ERR wrong number of arguments for 'XADD'\r\n";
+        }
 
         String streamKey = args.get(1);
         String rawId = args.get(2);
@@ -30,15 +33,32 @@ public class XADDcommand implements Command {
             return e.getMessage();
         }
 
-        Map<String, String> entry = new LinkedHashMap<>();
+        Map<String, String> entryFields = new LinkedHashMap<>();
         for (int i = 3; i < args.size(); i += 2) {
-            entry.put(args.get(i), args.get(i + 1));
+            entryFields.put(args.get(i), args.get(i + 1));
         }
 
-        streamStore.addEntry(streamKey, finalId, entry);
+        // Add to stream
+        streamStore.addEntry(streamKey, finalId, entryFields);
+
+        // Notify blocking clients if any
+        SocketChannel waitingClient = blockingManager.getNextBlockedClient(streamKey);
+        if (waitingClient != null) {
+            Map<String, List<String>> payload = new HashMap<>();
+            List<String> flatList = new ArrayList<>();
+            flatList.add(finalId);
+            for (Map.Entry<String, String> field : entryFields.entrySet()) {
+                flatList.add(field.getKey());
+                flatList.add(field.getValue());
+            }
+            payload.put(streamKey, flatList);
+
+            String response = RESPBuilder.streamEntries(payload);
+            waitingClient.write(ByteBuffer.wrap(response.getBytes()));
+        }
+
         return "$" + finalId.length() + "\r\n" + finalId + "\r\n";
     }
-
 
     private String generateValidId(String streamKey, String rawId) throws IOException {
         long msTime;
@@ -55,22 +75,11 @@ public class XADDcommand implements Command {
 
             if (Objects.equals(parts[1], "*")) {
                 msTime = Long.parseLong(parts[0]);
-                if (msTime == 0) {
-                    seqNum = 1; // If no entries, start at 1
-                    StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
-                    if (lastEntry != null) {
-                        String[] lastParts = lastEntry.getId().split("-");
-                        int lastSeq = Integer.parseInt(lastParts[1]);
-                        seqNum = lastSeq + 1;
-                    }
-                } else {
-                    // Similar logic for other ms values with *
-                    StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
-                    int lastSeq = -1;
-                    if (lastEntry != null && lastEntry.getId().startsWith(parts[0] + "-")) {
-                        String[] lastParts = lastEntry.getId().split("-");
-                        lastSeq = Integer.parseInt(lastParts[1]);
-                    }
+                seqNum = 0;
+                StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
+                if (lastEntry != null && lastEntry.getId().startsWith(parts[0] + "-")) {
+                    String[] lastParts = lastEntry.getId().split("-");
+                    int lastSeq = Integer.parseInt(lastParts[1]);
                     seqNum = lastSeq + 1;
                 }
             } else {
@@ -87,7 +96,7 @@ public class XADDcommand implements Command {
             }
         }
 
-        // Validate against last ID in stream
+        // Validate against last entry
         StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
         if (lastEntry != null) {
             String[] lastParts = lastEntry.getId().split("-");
@@ -101,5 +110,4 @@ public class XADDcommand implements Command {
 
         return msTime + "-" + seqNum;
     }
-
 }

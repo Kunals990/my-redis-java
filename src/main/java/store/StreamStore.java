@@ -33,4 +33,28 @@ public class StreamStore {
         if (entries == null || entries.isEmpty()) return null;
         return entries.getLast();
     }
+
+    public List<String> readRangeAfter(String streamKey, String minId) {
+        List<StreamEntry> entries = streams.get(streamKey);
+        List<String> results = new ArrayList<>();
+
+        if (entries == null) return results;
+
+        for (StreamEntry entry : entries) {
+            if (entry.getId().compareTo(minId) > 0) {
+                results.add(entry.getId());
+                List<String> flatFields = new ArrayList<>();
+                for (Map.Entry<String, String> field : entry.getFields().entrySet()) {
+                    flatFields.add(field.getKey());
+                    flatFields.add(field.getValue());
+                }
+                results.addAll(flatFields);
+            }
+        }
+
+        return results;
+    }
+
+
+
 }
