@@ -74,14 +74,27 @@ public class XADDcommand implements Command {
             }
 
             if (Objects.equals(parts[1], "*")) {
-                msTime = Long.parseLong(parts[0]);
-                seqNum = 0;
-                StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
-                if (lastEntry != null && lastEntry.getId().startsWith(parts[0] + "-")) {
-                    String[] lastParts = lastEntry.getId().split("-");
-                    int lastSeq = Integer.parseInt(lastParts[1]);
-                    seqNum = lastSeq + 1;
+                try {
+                    msTime = Long.parseLong(parts[0]);
+                } catch (NumberFormatException e) {
+                    throw new IOException("-ERR Invalid ID format\r\n");
                 }
+
+                seqNum = 0;
+
+                int maxSeq = -1;
+                for (StreamEntry entry : streamStore.getStream(streamKey)) {
+                    String[] idParts = entry.getId().split("-");
+                    if (idParts.length != 2) continue;
+
+                    if (Long.parseLong(idParts[0]) == msTime) {
+                        int s = Integer.parseInt(idParts[1]);
+                        maxSeq = Math.max(maxSeq, s);
+                    }
+                }
+
+                seqNum = maxSeq + 1;
+
             } else {
                 try {
                     msTime = Long.parseLong(parts[0]);
@@ -96,7 +109,6 @@ public class XADDcommand implements Command {
             }
         }
 
-        // Validate against last entry
         StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
         if (lastEntry != null) {
             String[] lastParts = lastEntry.getId().split("-");
@@ -110,4 +122,5 @@ public class XADDcommand implements Command {
 
         return msTime + "-" + seqNum;
     }
+
 }
