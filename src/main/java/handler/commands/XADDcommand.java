@@ -141,24 +141,33 @@ public class XADDcommand implements Command {
                 }
             }
 
-        } else {
+        }
+        else {
             // fully specified by user
-            String lastEntryId = lastMs + "-" + lastSeq;
-
+            // parse the user’s timestamp/seq
             String[] parts = rawId.split("-");
+            long rawMs;
+            int  rawSeq;
             try {
-                msTime = Long.parseLong(parts[0]);
-                seqNum = Integer.parseInt(parts[1]);
+                rawMs  = Long.parseLong(parts[0]);
+                rawSeq = Integer.parseInt(parts[1]);
             } catch (NumberFormatException e) {
                 throw new IOException("-ERR Invalid ID format\r\n");
             }
 
-            // NEW: custom message to match the test
-            if (lastMs > msTime || (lastMs == msTime && lastSeq >= seqNum)) {
-                throw new IOException(
-                        "-ERR The ID specified in XADD must be greater than " + lastEntryId + "\r\n"
-                );
+            // 1) Special case: user literally asked for 0-0
+            if (rawMs == 0 && rawSeq == 0) {
+                throw new IOException("-ERR The ID specified in XADD must be greater than 0-0\r\n");
             }
+
+            // 2) If the user’s ID is ≤ the stream’s top, block it
+            if (lastMs > rawMs || (lastMs == rawMs && lastSeq >= rawSeq)) {
+                throw new IOException("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n");
+            }
+
+            // 3) Otherwise it’s valid
+            msTime = rawMs;
+            seqNum = rawSeq;
         }
 
         return msTime + "-" + seqNum;
