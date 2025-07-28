@@ -37,10 +37,9 @@ public class XADDcommand implements Command {
             entryFields.put(args.get(i), args.get(i + 1));
         }
 
-        // Add to stream
         streamStore.addEntry(streamKey, finalId, entryFields);
 
-        // Notify any blocking client waiting on this stream
+        // Notify any blocking client
         SocketChannel waitingClient = blockingManager.getNextBlockedClient(streamKey);
         if (waitingClient != null) {
             Map<String, List<String>> payload = new HashMap<>();
@@ -71,14 +70,11 @@ public class XADDcommand implements Command {
             isAutoSeq = true;
         } else if (rawId.contains("-")) {
             String[] parts = rawId.split("-");
-            if (parts.length != 2) {
-                throw new IOException("-ERR Invalid ID format\r\n");
-            }
+            if (parts.length != 2) throw new IOException("-ERR Invalid ID format\r\n");
 
             isAutoTime = parts[0].equals("*");
             isAutoSeq = parts[1].equals("*");
 
-            // Handle individual cases below
         } else {
             throw new IOException("-ERR Invalid ID format\r\n");
         }
@@ -100,18 +96,20 @@ public class XADDcommand implements Command {
                 msTime = lastMs;
                 seqNum = lastSeq + 1;
             }
+
         } else if (isAutoTime) {
-            // *-<seqNum>
             try {
                 seqNum = Integer.parseInt(rawId.split("-")[1]);
             } catch (NumberFormatException e) {
                 throw new IOException("-ERR Invalid ID format\r\n");
             }
+
             msTime = System.currentTimeMillis();
             if (lastMs > msTime || (lastMs == msTime && lastSeq >= seqNum)) {
                 msTime = lastMs;
                 seqNum = lastSeq + 1;
             }
+
         } else if (isAutoSeq) {
             try {
                 msTime = Long.parseLong(rawId.split("-")[0]);
@@ -129,8 +127,9 @@ public class XADDcommand implements Command {
             }
 
             seqNum = (maxSeq == -1) ? 0 : maxSeq + 1;
+
         } else {
-            // fully specified ID
+            // Fully specified
             String[] parts = rawId.split("-");
             try {
                 msTime = Long.parseLong(parts[0]);
