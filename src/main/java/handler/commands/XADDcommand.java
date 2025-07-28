@@ -73,32 +73,25 @@ public class XADDcommand implements Command {
                 throw new IOException("-ERR Invalid ID format\r\n");
             }
 
-            if (Objects.equals(parts[1], "*")) {
-                try {
-                    msTime = Long.parseLong(parts[0]);
-                } catch (NumberFormatException e) {
-                    throw new IOException("-ERR Invalid ID format\r\n");
-                }
+            try {
+                msTime = Long.parseLong(parts[0]);
+            } catch (NumberFormatException e) {
+                throw new IOException("-ERR Invalid ID format\r\n");
+            }
 
-                seqNum = 0;
-
+            if (parts[1].equals("*")) {
                 int maxSeq = -1;
-                List<StreamEntry> allEntries = streamStore.getStream(streamKey);
-                for (StreamEntry entry : allEntries) {
-                    String[] idParts = entry.getId().split("-");
+                List<StreamEntry> entries = streamStore.getStream(streamKey);
+                for (StreamEntry e : entries) {
+                    String[] idParts = e.getId().split("-");
                     if (idParts.length != 2) continue;
-
                     if (Long.parseLong(idParts[0]) == msTime) {
-                        int seq = Integer.parseInt(idParts[1]);
-                        maxSeq = Math.max(maxSeq, seq);
+                        maxSeq = Math.max(maxSeq, Integer.parseInt(idParts[1]));
                     }
                 }
-                seqNum = (maxSeq == -1) ? 1 : maxSeq + 1;
-
-
+                seqNum = (maxSeq == -1) ? 0 : maxSeq + 1;
             } else {
                 try {
-                    msTime = Long.parseLong(parts[0]);
                     seqNum = Integer.parseInt(parts[1]);
                 } catch (NumberFormatException e) {
                     throw new IOException("-ERR Invalid ID format\r\n");
@@ -116,12 +109,8 @@ public class XADDcommand implements Command {
             long lastMs = Long.parseLong(lastParts[0]);
             int lastSeq = Integer.parseInt(lastParts[1]);
 
-            if (msTime < lastMs || (msTime == lastMs && lastSeq >= 999999)) {
+            if (msTime < lastMs || (msTime == lastMs && seqNum <= lastSeq)) {
                 throw new IOException("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n");
-            }
-
-            if (lastMs == msTime) {
-                seqNum = lastSeq + 1;
             }
         }
 
