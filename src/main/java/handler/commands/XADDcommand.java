@@ -126,7 +126,12 @@ public class XADDcommand implements Command {
                 }
             }
 
-            seqNum = maxSeq + 1;
+            if (maxSeq < 0) {
+                seqNum = 1;
+            } else {
+                seqNum = maxSeq + 1;
+            }
+
         } else {
             // Fully specified
             String[] parts = rawId.split("-");
