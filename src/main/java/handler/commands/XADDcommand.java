@@ -132,5 +132,4 @@ public class XADDcommand implements Command {
         return msTime + "-" + seqNum;
     }
 
-
 }
