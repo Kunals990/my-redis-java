@@ -59,8 +59,8 @@ public class XADDcommand implements Command {
     }
 
     private String generateValidId(String rawId, String streamKey) throws IOException {
-        long    msTime;
-        int     seqNum;
+        long msTime;
+        int  seqNum;
 
         boolean isAutoTime = false;
         boolean isAutoSeq  = false;
@@ -71,7 +71,6 @@ public class XADDcommand implements Command {
         } else if (rawId.contains("-")) {
             String[] parts = rawId.split("-");
             if (parts.length != 2) throw new IOException("-ERR Invalid ID format\r\n");
-
             isAutoTime = parts[0].equals("*");
             isAutoSeq  = parts[1].equals("*");
         } else {
@@ -88,7 +87,7 @@ public class XADDcommand implements Command {
         }
 
         if (isAutoTime && isAutoSeq) {
-            // fully auto: time = now or bump if needed, seq = 0 or bump
+            // fully auto
             long now = System.currentTimeMillis();
             msTime = now;
             seqNum = 0;
@@ -98,15 +97,13 @@ public class XADDcommand implements Command {
             }
 
         } else if (isAutoTime) {
-            // auto time, user-provided seq
-            String[] parts = rawId.split("-");
+            // auto time, user seq
             int providedSeq;
             try {
-                providedSeq = Integer.parseInt(parts[1]);
+                providedSeq = Integer.parseInt(rawId.split("-")[1]);
             } catch (NumberFormatException e) {
                 throw new IOException("-ERR Invalid ID format\r\n");
             }
-
             long now = System.currentTimeMillis();
             msTime = now;
             seqNum = providedSeq;
@@ -116,20 +113,17 @@ public class XADDcommand implements Command {
             }
 
         } else if (isAutoSeq) {
-            // user-provided time, auto seq
+            // user time, auto seq
             long candidateMs;
             try {
                 candidateMs = Long.parseLong(rawId.split("-")[0]);
             } catch (NumberFormatException e) {
                 throw new IOException("-ERR Invalid ID format\r\n");
             }
-
-            // If candidate is <= last entry, bump to lastId+1
-            if (lastMs > candidateMs || lastMs == candidateMs) {
+            if (lastMs >= candidateMs) {
                 msTime = lastMs;
                 seqNum = lastSeq + 1;
             } else {
-                // fresh timestamp beyond last
                 msTime = candidateMs;
                 int maxSeqAtTs = -1;
                 for (StreamEntry entry : allEntries) {
@@ -141,16 +135,16 @@ public class XADDcommand implements Command {
                 if (maxSeqAtTs >= 0) {
                     seqNum = maxSeqAtTs + 1;
                 } else if (candidateMs == 0) {
-                    // special: first-ever 0-* starts at 1
                     seqNum = 1;
                 } else {
-                    // brand-new timestamp
                     seqNum = 0;
                 }
             }
 
         } else {
             // fully specified by user
+            String lastEntryId = lastMs + "-" + lastSeq;
+
             String[] parts = rawId.split("-");
             try {
                 msTime = Long.parseLong(parts[0]);
@@ -158,8 +152,12 @@ public class XADDcommand implements Command {
             } catch (NumberFormatException e) {
                 throw new IOException("-ERR Invalid ID format\r\n");
             }
+
+            // NEW: custom message to match the test
             if (lastMs > msTime || (lastMs == msTime && lastSeq >= seqNum)) {
-                throw new IOException("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n");
+                throw new IOException(
+                        "-ERR The ID specified in XADD must be greater than " + lastEntryId + "\r\n"
+                );
             }
         }
 
