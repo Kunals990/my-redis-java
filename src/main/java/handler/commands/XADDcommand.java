@@ -83,17 +83,18 @@ public class XADDcommand implements Command {
                 seqNum = 0;
 
                 int maxSeq = -1;
-                for (StreamEntry entry : streamStore.getStream(streamKey)) {
+                List<StreamEntry> allEntries = streamStore.getStream(streamKey);
+                for (StreamEntry entry : allEntries) {
                     String[] idParts = entry.getId().split("-");
                     if (idParts.length != 2) continue;
 
                     if (Long.parseLong(idParts[0]) == msTime) {
-                        int s = Integer.parseInt(idParts[1]);
-                        maxSeq = Math.max(maxSeq, s);
+                        int seq = Integer.parseInt(idParts[1]);
+                        maxSeq = Math.max(maxSeq, seq);
                     }
                 }
+                seqNum = (maxSeq == -1) ? 0 : maxSeq + 1;
 
-                seqNum = (maxSeq == -1) ? 1 : maxSeq + 1;
 
             } else {
                 try {
@@ -115,8 +116,12 @@ public class XADDcommand implements Command {
             long lastMs = Long.parseLong(lastParts[0]);
             int lastSeq = Integer.parseInt(lastParts[1]);
 
-            if (msTime < lastMs || (msTime == lastMs && seqNum <= lastSeq)) {
+            if (msTime < lastMs || (msTime == lastMs && lastSeq >= 999999)) {
                 throw new IOException("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n");
+            }
+
+            if (lastMs == msTime) {
+                seqNum = lastSeq + 1;
             }
         }
 
