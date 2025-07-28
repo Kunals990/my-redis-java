@@ -121,6 +121,19 @@ public class XADDcommand implements Command {
                 } catch (NumberFormatException e) {
                     throw new IOException("-ERR Invalid ID format\r\n");
                 }
+
+                List<StreamEntry> allEntries = streamStore.getStream(streamKey);
+                if (!allEntries.isEmpty()) {
+                    String lastId = allEntries.get(allEntries.size() - 1).getId();
+                    String[] lastParts = lastId.split("-");
+
+                    long lastMs = Long.parseLong(lastParts[0]);
+                    int lastSeq = Integer.parseInt(lastParts[1]);
+
+                    if (msTime < lastMs || (msTime == lastMs && seqNum <= lastSeq)) {
+                        throw new IOException("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n");
+                    }
+                }
             }
         } else {
             throw new IOException("-ERR Invalid ID format\r\n");
