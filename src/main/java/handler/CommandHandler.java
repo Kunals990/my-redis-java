@@ -21,7 +21,8 @@ public class CommandHandler {
             Map.entry("LPOP", new LPOPcommand()),
             Map.entry("BLPOP", new BLPOPcommand()),
             Map.entry("TYPE", new TYPEcommand()),
-            Map.entry("XADD",new XADDcommand())
+            Map.entry("XADD",new XADDcommand()),
+            Map.entry("XRANGE",new XRANGEcommand())
     );
 
     public static String handle(List<String> args, SocketChannel clientChannel) throws IOException {

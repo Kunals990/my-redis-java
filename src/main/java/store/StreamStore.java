@@ -1,12 +1,13 @@
 package store;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class StreamStore {
 
     private static final StreamStore INSTANCE = new StreamStore();
 
-    private final Map<String, List<StreamEntry>> streams = new HashMap<>();
+    private final Map<String, List<StreamEntry>> streams = new ConcurrentHashMap<>();
 
     private StreamStore() {}
 
