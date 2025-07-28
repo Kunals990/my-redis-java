@@ -60,30 +60,43 @@ public class XADDcommand implements Command {
         return "$" + finalId.length() + "\r\n" + finalId + "\r\n";
     }
 
-    private String generateValidId(String streamKey, String rawId) throws IOException {
+    private String generateValidId(String rawId, String streamKey) throws IOException {
         long msTime;
         int seqNum;
-
+        boolean isAutoTime = false;
         boolean isAutoSeq = false;
 
-        if (Objects.equals(rawId, "*")) {
+        if (rawId.equals("*")) {
             msTime = System.currentTimeMillis();
             seqNum = 0;
+            isAutoTime = true;
             isAutoSeq = true;
-        } else {
+        } else if (rawId.contains("-")) {
             String[] parts = rawId.split("-");
             if (parts.length != 2) {
                 throw new IOException("-ERR Invalid ID format\r\n");
             }
 
-            if (Objects.equals(parts[1], "*")) {
+            isAutoTime = parts[0].equals("*");
+            isAutoSeq = parts[1].equals("*");
+
+            // Auto timestamp, fixed sequence
+            if (isAutoTime && !isAutoSeq) {
+                msTime = System.currentTimeMillis();
+                try {
+                    seqNum = Integer.parseInt(parts[1]);
+                } catch (NumberFormatException e) {
+                    throw new IOException("-ERR Invalid ID format\r\n");
+                }
+            }
+
+            // Fixed timestamp, auto sequence: "0-*"
+            else if (!isAutoTime && isAutoSeq) {
                 try {
                     msTime = Long.parseLong(parts[0]);
                 } catch (NumberFormatException e) {
                     throw new IOException("-ERR Invalid ID format\r\n");
                 }
-
-                isAutoSeq = true;
 
                 int maxSeq = -1;
                 List<StreamEntry> allEntries = streamStore.getStream(streamKey);
@@ -96,40 +109,25 @@ public class XADDcommand implements Command {
                         maxSeq = Math.max(maxSeq, seq);
                     }
                 }
-                seqNum = (maxSeq == -1) ? 0 : maxSeq + 1;
 
-            } else {
+                seqNum = (maxSeq == -1) ? 1 : maxSeq + 1;
+            }
+
+            // Both fixed
+            else {
                 try {
                     msTime = Long.parseLong(parts[0]);
                     seqNum = Integer.parseInt(parts[1]);
                 } catch (NumberFormatException e) {
                     throw new IOException("-ERR Invalid ID format\r\n");
                 }
-
-                if (msTime == 0 && seqNum == 0) {
-                    throw new IOException("-ERR The ID specified in XADD must be greater than 0-0\r\n");
-                }
             }
-        }
-
-        StreamEntry lastEntry = streamStore.getLastEntry(streamKey);
-        if (lastEntry != null) {
-            String[] lastParts = lastEntry.getId().split("-");
-            long lastMs = Long.parseLong(lastParts[0]);
-            int lastSeq = Integer.parseInt(lastParts[1]);
-
-            if (msTime < lastMs || (msTime == lastMs && seqNum <= lastSeq)) {
-                if (!isAutoSeq) {
-                    throw new IOException("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n");
-                }
-                // If auto-seq and ID would conflict, bump seqNum
-                if (msTime == lastMs) {
-                    seqNum = lastSeq + 1;
-                }
-            }
+        } else {
+            throw new IOException("-ERR Invalid ID format\r\n");
         }
 
         return msTime + "-" + seqNum;
     }
+
 
 }
