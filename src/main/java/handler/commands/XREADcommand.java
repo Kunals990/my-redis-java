@@ -49,7 +49,7 @@ public class XREADcommand implements Command {
                 ids.add(commandParts.get(i));
             }
 
-            Map<String, List<String>> availableEntries = new HashMap<>();
+            Map<String, List<String>> availableEntries = new LinkedHashMap<>();
             for (int i = 0; i < keys.size(); i++) {
                 String streamKey = keys.get(i);
                 String id = ids.get(i);
