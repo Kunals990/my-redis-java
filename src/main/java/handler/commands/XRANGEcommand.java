@@ -20,13 +20,16 @@ public class XRANGEcommand implements Command {
         }
 
         String streamKey = args.get(1);
-        String startId = normalizeId(args.get(2), false); // e.g., "0" → "0-0"
-        String endId = normalizeId(args.get(3), true);    // e.g., "0" → "0-999999"
+        String startRaw = args.get(2);
+        String endRaw = args.get(3);
 
         List<StreamEntry> entries = streamStore.getStream(streamKey);
         if (entries == null || entries.isEmpty()) {
             return "*0\r\n"; // empty array
         }
+
+        String startId = normalizeId(startRaw, false);
+        String endId = normalizeId(endRaw, true);
 
         List<String> responseLines = new ArrayList<>();
         int count = 0;
@@ -35,10 +38,8 @@ public class XRANGEcommand implements Command {
             String entryId = entry.getId();
             if (compareIds(entryId, startId) >= 0 && compareIds(entryId, endId) <= 0) {
                 responseLines.add("*2\r\n");
-
                 responseLines.add("$" + entryId.length() + "\r\n" + entryId + "\r\n");
 
-                // Key-value pairs
                 List<String> fieldValueList = new ArrayList<>();
                 entry.getFields().forEach((field, value) -> {
                     fieldValueList.add("$" + field.length() + "\r\n" + field + "\r\n");
@@ -60,12 +61,14 @@ public class XRANGEcommand implements Command {
     }
 
     private String normalizeId(String id, boolean isEnd) {
+        if (id.equals("-")) {
+            return "0-0"; // beginning of stream
+        }
+        if (id.equals("+")) {
+            return Long.MAX_VALUE + "-" + Integer.MAX_VALUE; // end of stream
+        }
         if (!id.contains("-")) {
-            if (isEnd) {
-                return id + "-999999";
-            } else {
-                return id + "-0";
-            }
+            return isEnd ? id + "-999999" : id + "-0";
         }
         return id;
     }
