@@ -35,6 +35,7 @@ public class ReplicaConnectionHandler implements Runnable {
             completeHandShake1(out,in);
             completeHandShake2(out,in);
             completeHandShake3(out,in);
+            completeHandShake4(out,in);
 
         } catch (IOException e) {
             logger.severe("Failed to connect to master: " + e.getMessage());
