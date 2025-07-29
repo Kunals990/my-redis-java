@@ -16,11 +16,12 @@ public class INCRcommand implements Command {
     public String execute(List<String> args, SocketChannel clientChannel) throws IOException {
         if (args.size() < 2) return "-ERR wrong number of arguments for 'INCR'\r\n";
         String key=args.get(1);
-        String val=keyValueStore.get(key);
         int expiry=-1;
+        String value= keyValueStore.get(key);
+        int val = Integer.parseInt(value);
         val=val+1;
-        keyValueStore.set(key,val, expiry);
+        keyValueStore.set(key,Integer.toString(val), expiry);
 
-        return ":"+val+"\r\n";
+        return ":"+val +"\r\n";
     }
 }
