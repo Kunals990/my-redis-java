@@ -22,7 +22,13 @@ public class INCRcommand implements Command {
             keyValueStore.set(key,"1", expiry);
             return ":1\r\n";
         }
-        int val = Integer.parseInt(value);
+        int val = 0;
+        try {
+            val = Integer.parseInt(value);
+        }catch (NumberFormatException e){
+            return "-ERR value is not an integer or out of range\r\n";
+        }
+
         val=val+1;
         keyValueStore.set(key,Integer.toString(val), expiry);
 
