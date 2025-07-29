@@ -27,14 +27,15 @@ public class EXECcommand implements Command {
                 commandStore.clearQueue(clientChannel);
                 return "*0\r\n";
             }
-            List<String> results = new ArrayList<>(); 
+            multIcommand.disableMulti(clientChannel);
+            List<String> results = new ArrayList<>();
             while(!commands.isEmpty()){
                 List<String> commandArgs=commands.poll();
                 String result = CommandHandler.handle(commandArgs,clientChannel);
                 results.add(result.trim());
             }
 
-            multIcommand.disableMulti(clientChannel);
+
             commandStore.clearQueue(clientChannel);
 
             StringBuilder resp = new StringBuilder();
