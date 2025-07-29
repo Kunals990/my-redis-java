@@ -23,7 +23,8 @@ public class CommandHandler {
             Map.entry("TYPE", new TYPEcommand()),
             Map.entry("XADD",new XADDcommand()),
             Map.entry("XRANGE",new XRANGEcommand()),
-            Map.entry("XREAD",new XREADcommand())
+            Map.entry("XREAD",new XREADcommand()),
+            Map.entry("INCR",new INCRcommand())
     );
 
     public static String handle(List<String> args, SocketChannel clientChannel) throws IOException {
