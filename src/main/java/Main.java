@@ -14,7 +14,6 @@ import java.util.Set;
 public class Main {
     public static void main(String[] args) throws IOException {
         int port = 6379;
-        String role="master";
 
         for(int i=0;i<args.length-1;i++){
             if(args[i].equals("--port")){
