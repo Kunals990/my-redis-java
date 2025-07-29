@@ -4,6 +4,7 @@ import handler.BlockedClient;
 import handler.BlockingClientManager;
 import handler.Command;
 import protocols.RESPBuilder;
+import store.StreamEntry;
 import store.StreamStore;
 
 import java.nio.ByteBuffer;
@@ -31,9 +32,6 @@ public class XREADcommand implements Command {
                     timeout = Long.parseLong(commandParts.get(i + 1));
                     i++; // skip timeout value
                 }
-                else if(commandParts.get(i).equalsIgnoreCase("$")){
-                    isBlocking$=true;
-                }
                 else if (commandParts.get(i).equalsIgnoreCase("STREAMS")) {
                     streamsIndex = i;
                     break;
@@ -52,7 +50,18 @@ public class XREADcommand implements Command {
                 keys.add(commandParts.get(i));
             }
             for (int i = streamsIndex + 1 + numKeys; i < commandParts.size(); i++) {
-                ids.add(commandParts.get(i));
+                String rawId = commandParts.get(streamsIndex + 1 + numKeys + i);
+                if (rawId.equals("$")) {
+                    List<StreamEntry> stream = streamStore.getStream(keys.get(i));
+                    if (!stream.isEmpty()) {
+                        String lastId = stream.get(stream.size() - 1).getId();
+                        ids.add(lastId);
+                    } else {
+                        ids.add("0-0");
+                    }
+                } else {
+                    ids.add(rawId);
+                }
             }
 
             Map<String, List<String>> availableEntries = new LinkedHashMap<>();
@@ -67,10 +76,6 @@ public class XREADcommand implements Command {
 
             if (!availableEntries.isEmpty()) {
                 return RESPBuilder.streamEntries(availableEntries);
-            }
-            if(isBlocking$){
-                blockingManager.addBlockedClientForStreams(keys,clientChannel,timeout);
-                return null;
             }
 
             if (isBlocking) {
