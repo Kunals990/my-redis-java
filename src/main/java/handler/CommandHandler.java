@@ -28,7 +28,8 @@ public class CommandHandler {
             Map.entry("INCR",new INCRcommand()),
             Map.entry("MULTI",MULTIcommand.getInstance()),
             Map.entry("EXEC",new EXECcommand()),
-            Map.entry("DISCARD",new DISCARDcommand())
+            Map.entry("DISCARD",new DISCARDcommand()),
+            Map.entry("INFO",new INFOcommand())
     );
 
     static CommandStore commandStore = CommandStore.getInstance();
