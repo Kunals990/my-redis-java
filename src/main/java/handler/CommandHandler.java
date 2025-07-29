@@ -1,6 +1,7 @@
 package handler;
 
 import handler.commands.*;
+import store.CommandStore;
 
 import java.io.IOException;
 import java.nio.channels.SocketChannel;
@@ -24,12 +25,19 @@ public class CommandHandler {
             Map.entry("XADD",new XADDcommand()),
             Map.entry("XRANGE",new XRANGEcommand()),
             Map.entry("XREAD",new XREADcommand()),
-            Map.entry("INCR",new INCRcommand())
+            Map.entry("INCR",new INCRcommand()),
+            Map.entry("MULTI",new MULTIcommand())
     );
+
+    static CommandStore commandStore = CommandStore.getInstance();
 
     public static String handle(List<String> args, SocketChannel clientChannel) throws IOException {
         if (args.isEmpty()) {
             return "-ERR Empty command\r\n";
+        }
+
+        if (MULTIcommand.getInstance().isMulti(clientChannel)) {
+            return commandStore.addToQueue(clientChannel, args);
         }
 
         String commandName = args.get(0).toUpperCase();
