@@ -30,7 +30,8 @@ public class CommandHandler {
             Map.entry("EXEC",new EXECcommand()),
             Map.entry("DISCARD",new DISCARDcommand()),
             Map.entry("INFO",new INFOcommand()),
-            Map.entry("REPLCONF",new REPLCONFcommand())
+            Map.entry("REPLCONF",new REPLCONFcommand()),
+            Map.entry("PSYNC",new PSYNCcommand())
     );
 
     static CommandStore commandStore = CommandStore.getInstance();
