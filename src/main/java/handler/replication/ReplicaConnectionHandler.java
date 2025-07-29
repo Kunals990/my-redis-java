@@ -32,6 +32,9 @@ public class ReplicaConnectionHandler implements Runnable {
             out.write(pingCommand);
             out.flush();
             logger.info("PING sent to master.");
+            byte[] buffer = new byte[1024];
+            int read = in.read(buffer);
+            String response = new String(buffer, 0, read);
 
             byte[] replConfig1 = RESPUtils.buildCommand("REPLCONF","listening-port","6380");
             out.write(replConfig1);
@@ -41,9 +44,6 @@ public class ReplicaConnectionHandler implements Runnable {
             out.write(replConfig2);
             out.flush();
 
-            byte[] buffer = new byte[1024];
-            int read = in.read(buffer);
-            String response = new String(buffer, 0, read);
             logger.info("Received from master: " + response);
 
         } catch (IOException e) {
