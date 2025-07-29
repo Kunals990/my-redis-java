@@ -28,9 +28,9 @@ public class Main {
             }
 
             if(args[i].equals("--replicaof")){
-                String masterHost=args[i+1];
-                String masterPort=args[i+2];
-
+                String[] parts = args[i + 1].split(" ");
+                String host = parts[0];
+                String masterPort = parts[1];
                 ServerConfig.setRole("slave");
             }
         }
