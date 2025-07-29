@@ -24,6 +24,7 @@ public class EXECcommand implements Command {
             Queue<List<String>> commands = commandStore.getQueue(clientChannel);
             if(commands==null ||commands.isEmpty()){
                 multIcommand.disableMulti(clientChannel);
+                commandStore.clearQueue(clientChannel);
                 return "*0\r\n";
             }
             List<String> results = new ArrayList<>();
