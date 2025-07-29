@@ -21,6 +21,8 @@ public class XREADcommand implements Command {
             boolean isBlocking = false;
             long timeout = 0;
             int streamsIndex = -1;
+            boolean isBlocking$=false;
+
 
             // Parse XREAD [BLOCK timeout] STREAMS key [key2 ...] ID [ID2 ...]
             for (int i = 1; i < commandParts.size(); i++) {
@@ -28,7 +30,11 @@ public class XREADcommand implements Command {
                     isBlocking = true;
                     timeout = Long.parseLong(commandParts.get(i + 1));
                     i++; // skip timeout value
-                } else if (commandParts.get(i).equalsIgnoreCase("STREAMS")) {
+                }
+                else if(commandParts.get(i).equalsIgnoreCase("$")){
+                    isBlocking$=true;
+                }
+                else if (commandParts.get(i).equalsIgnoreCase("STREAMS")) {
                     streamsIndex = i;
                     break;
                 }
@@ -61,6 +67,10 @@ public class XREADcommand implements Command {
 
             if (!availableEntries.isEmpty()) {
                 return RESPBuilder.streamEntries(availableEntries);
+            }
+            if(isBlocking$){
+                blockingManager.addBlockedClientForStreams(keys,clientChannel,timeout);
+                return null;
             }
 
             if (isBlocking) {
