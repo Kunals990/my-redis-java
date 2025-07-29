@@ -49,7 +49,7 @@ public class XREADcommand implements Command {
             for (int i = streamsIndex + 1; i <= streamsIndex + numKeys; i++) {
                 keys.add(commandParts.get(i));
             }
-            for (int i = 0; i < commandParts.size(); i++) {
+            for (int i = 0; i < keys.size(); i++) {
                 String rawId = commandParts.get(streamsIndex + 1 + numKeys + i);
                 if (rawId.equals("$")) {
                     List<StreamEntry> stream = streamStore.getStream(keys.get(i));
