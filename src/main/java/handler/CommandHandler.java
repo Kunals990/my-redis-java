@@ -27,7 +27,8 @@ public class CommandHandler {
             Map.entry("XREAD",new XREADcommand()),
             Map.entry("INCR",new INCRcommand()),
             Map.entry("MULTI",MULTIcommand.getInstance()),
-            Map.entry("EXEC",new EXECcommand())
+            Map.entry("EXEC",new EXECcommand()),
+            Map.entry("DISCARD",new DISCARDcommand())
     );
 
     static CommandStore commandStore = CommandStore.getInstance();
@@ -40,7 +41,7 @@ public class CommandHandler {
         String commandName = args.get(0).toUpperCase();
         Command command = commandMap.get(commandName);
 
-        if (commandName.equals("MULTI") || commandName.equals("EXEC")) {
+        if (commandName.equals("MULTI") || commandName.equals("EXEC") ||commandName.equals("DISCARD") ) {
             return command.execute(args, clientChannel);
         }
 
