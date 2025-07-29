@@ -17,7 +17,7 @@ public class CommandStore {
     public String addToQueue(SocketChannel channel, List<String> args) {
         multiQueues.putIfAbsent(channel, new LinkedList<>());
         multiQueues.get(channel).add(args);
-        return ":QUEUED\r\n";
+        return "+QUEUED\r\n";
     }
 
     public Queue<List<String>> getQueue(SocketChannel channel) {

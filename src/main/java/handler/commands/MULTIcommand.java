@@ -12,7 +12,7 @@ import java.util.Set;
 public class MULTIcommand implements Command {
 
     private static final MULTIcommand INSTANCE = new MULTIcommand();
-    public MULTIcommand() {};
+    private MULTIcommand() {};
 
     public static MULTIcommand getInstance(){
         return INSTANCE;
