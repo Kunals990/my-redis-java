@@ -60,7 +60,7 @@ public class ReplicaConnectionHandler implements Runnable {
         List<String> request = new ArrayList<>();
         request.add("REPLCONF");
         request.add("listening-port");
-        request.add(ServerConfig.getMaster_port());
+        request.add("6380");
         byte[] replConfig1 = RESPUtils.buildCommand(request);
         outputStream.write(replConfig1);
         outputStream.flush();
