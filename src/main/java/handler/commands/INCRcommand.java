@@ -18,6 +18,10 @@ public class INCRcommand implements Command {
         String key=args.get(1);
         int expiry=-1;
         String value= keyValueStore.get(key);
+        if(value==null){
+            keyValueStore.set(key,"1", expiry);
+            return ":1\r\n";
+        }
         int val = Integer.parseInt(value);
         val=val+1;
         keyValueStore.set(key,Integer.toString(val), expiry);
