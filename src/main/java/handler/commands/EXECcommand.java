@@ -23,6 +23,7 @@ public class EXECcommand implements Command {
         else{
             Queue<List<String>> commands = commandStore.getQueue(clientChannel);
             if(commands.isEmpty()){
+                multIcommand.disableMulti(clientChannel);
                 return "*0\r\n";
             }
             List<String> results = new ArrayList<>();
