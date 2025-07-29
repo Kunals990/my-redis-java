@@ -1,5 +1,6 @@
 import handler.BlockedClientTimeoutChecker;
 import handler.CommandHandler;
+import handler.ServerConfig;
 import protocols.RESPParser;
 
 import java.io.IOException;
@@ -13,6 +14,7 @@ import java.util.Set;
 public class Main {
     public static void main(String[] args) throws IOException {
         int port = 6379;
+        String role="master";
 
         for(int i=0;i<args.length-1;i++){
             if(args[i].equals("--port")){
@@ -23,6 +25,13 @@ public class Main {
                     System.exit(1);
                 }
 
+            }
+
+            if(args[i].equals("--replicaof")){
+                String masterHost=args[i+1];
+                String masterPort=args[i+2];
+
+                ServerConfig.setRole("slave");
             }
         }
 
