@@ -1,5 +1,6 @@
 import handler.BlockedClientTimeoutChecker;
 import handler.CommandHandler;
+import handler.Replica.ReplicaClient;
 import handler.ServerConfig;
 import protocols.RESPParser;
 
@@ -28,9 +29,14 @@ public class Main {
 
             if(args[i].equals("--replicaof")){
                 String[] parts = args[i + 1].split(" ");
-                String host = parts[0];
+                String masterHost = parts[0];
                 String masterPort = parts[1];
+                ServerConfig.setMaster_host(masterHost);
+                ServerConfig.setMaster_port(masterPort);
                 ServerConfig.setRole("slave");
+                ReplicaClient replicaClient = new ReplicaClient();
+                replicaClient.ping();
+
             }
         }
 

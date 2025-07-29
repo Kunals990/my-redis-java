@@ -3,6 +3,9 @@ package handler;
 public class ServerConfig {
     private static String role ="master";
 
+    private static String master_host;
+    private static String master_port;
+
     private static String master_replid="8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
     private static String master_repl_offset="0";
 
@@ -30,5 +33,19 @@ public class ServerConfig {
         ServerConfig.master_repl_offset = master_repl_offset;
     }
 
+    public static String getMaster_host(){
+        return master_host;
+    }
 
+    public static void setMaster_host(String host){
+        ServerConfig.master_host=host;
+    }
+
+    public static String getMaster_port() {
+        return master_port;
+    }
+
+    public static void setMaster_port(String master_port) {
+        ServerConfig.master_port = master_port;
+    }
 }
