@@ -31,8 +31,15 @@ public class ReplicaConnectionHandler implements Runnable {
             byte[] pingCommand = RESPUtils.buildCommand("PING");
             out.write(pingCommand);
             out.flush();
-
             logger.info("PING sent to master.");
+
+            byte[] replConfig1 = RESPUtils.buildCommand("REPLCONF","listening-port","6380");
+            out.write(replConfig1);
+            out.flush();
+
+            byte[] replConfig2= RESPUtils.buildCommand("REPLCONF","capa","psync2");
+            out.write(replConfig2);
+            out.flush();
 
             byte[] buffer = new byte[1024];
             int read = in.read(buffer);
