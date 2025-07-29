@@ -37,12 +37,16 @@ public class CommandHandler {
             return "-ERR Empty command\r\n";
         }
 
+        String commandName = args.get(0).toUpperCase();
+        Command command = commandMap.get(commandName);
+
+        if (commandName.equals("MULTI") || commandName.equals("EXEC")) {
+            return command.execute(args, clientChannel);
+        }
+
         if (MULTIcommand.getInstance().isMulti(clientChannel)) {
             return commandStore.addToQueue(clientChannel, args);
         }
-
-        String commandName = args.get(0).toUpperCase();
-        Command command = commandMap.get(commandName);
 
         if (command == null) {
             return "-ERR unknown command '" + commandName + "'\r\n";
