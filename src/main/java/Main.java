@@ -14,6 +14,18 @@ public class Main {
     public static void main(String[] args) throws IOException {
         int port = 6379;
 
+        for(int i=0;i<args.length-1;i++){
+            if(args[i].equals("--port")){
+                try {
+                    port=Integer.parseInt(args[i+1]);
+                } catch (NumberFormatException e) {
+                    System.err.println("Invalid port number: "+args[i+1]);
+                    System.exit(1);
+                }
+
+            }
+        }
+
         // Step 1: Setup non-blocking server socket channel
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
