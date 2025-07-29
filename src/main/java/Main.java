@@ -1,7 +1,7 @@
 import handler.BlockedClientTimeoutChecker;
 import handler.CommandHandler;
-import handler.Replica.ReplicaClient;
-import handler.ServerConfig;
+import config.ServerConfig;
+import handler.replication.ReplicaConnectionHandler;
 import protocols.RESPParser;
 
 import java.io.IOException;
@@ -11,6 +11,7 @@ import java.nio.channels.*;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executors;
 
 public class Main {
     public static void main(String[] args) throws IOException {
@@ -34,9 +35,9 @@ public class Main {
                 ServerConfig.setMaster_host(masterHost);
                 ServerConfig.setMaster_port(masterPort);
                 ServerConfig.setRole("slave");
-                ReplicaClient replicaClient = new ReplicaClient();
-                replicaClient.ping();
 
+                ReplicaConnectionHandler replicaHandler = new ReplicaConnectionHandler(masterHost,Integer.parseInt(masterPort));
+                Executors.newSingleThreadExecutor().submit(replicaHandler);
             }
         }
 

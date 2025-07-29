@@ -1,7 +1,7 @@
 package handler.commands;
 
 import handler.Command;
-import handler.ServerConfig;
+import config.ServerConfig;
 
 import java.io.IOException;
 import java.nio.channels.SocketChannel;

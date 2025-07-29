@@ -1,4 +1,4 @@
-package handler;
+package config;
 
 public class ServerConfig {
     private static String role ="master";
