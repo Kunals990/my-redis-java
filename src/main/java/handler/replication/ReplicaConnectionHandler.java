@@ -91,5 +91,20 @@ public class ReplicaConnectionHandler implements Runnable {
         }
     }
 
+    private void completeHandShake4(OutputStream outputStream,InputStream inputStream) throws IOException {
+        List<String> request = new ArrayList<>();
+        request.add("PSYNC");
+        request.add("?");
+        request.add("-1");
+        byte[] psync = RESPUtils.buildCommand(request);
+        outputStream.write(psync);
+        outputStream.flush();
+
+        byte[] buffer = new byte[1024];
+        int read = inputStream.read(buffer);
+        String response = RESPResponseParser.parseSimpleString(buffer,read);
+
+    }
+
 
 }
