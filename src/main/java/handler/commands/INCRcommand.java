@@ -14,7 +14,7 @@ public class INCRcommand implements Command {
 
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) throws IOException {
-        if (args.size() < 3) return "-ERR wrong number of arguments for 'INCR'\r\n";
+        if (args.size() < 2) return "-ERR wrong number of arguments for 'INCR'\r\n";
         String key=args.get(1);
         String val=keyValueStore.get(key);
         int expiry=-1;
