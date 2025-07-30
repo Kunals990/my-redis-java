@@ -185,8 +185,10 @@ class RESPParser {
     }
 
     public List<String> parseArray() throws IOException {
+        bytesRead=0;
         int b = in.read();
         if (b == -1 || (char) b != '*') return null;
+        incrBytes(1);
 
         int arrayLength = readInt();
         List<String> elements = new ArrayList<>();
@@ -205,7 +207,7 @@ class RESPParser {
         }
 
         ReplicaConfig.incrOffset(bytesRead);
-        bytesRead=0;
+
         return elements;
     }
 
