@@ -140,9 +140,11 @@ public class ReplicaConnectionHandler implements Runnable {
 
 
     private void startCommandReplicationLoop(OutputStream outputStream,InputStream inputStream) throws IOException {
+
         RESPParser parser = new RESPParser(inputStream);
 
         while (true) {
+            long offset = ReplicaConfig.getOffset();
             List<String> commandArgs = parser.parseArray();
             if (commandArgs == null || commandArgs.isEmpty()) {
                 continue;
@@ -153,9 +155,9 @@ public class ReplicaConnectionHandler implements Runnable {
             if (cmd.equals("REPLCONF") && commandArgs.size() == 3
                     && commandArgs.get(1).equalsIgnoreCase("GETACK")
                     && commandArgs.get(2).equals("*")) {
-                String offset = Integer.toString((int) ReplicaConfig.getOffset()) ;
 
-                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"+offset.length()+"\r\n"+offset+"\r\n";
+                String offsetStr = Long.toString(offset);
+                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"+offsetStr.length()+"\r\n"+offsetStr+"\r\n";
                 outputStream.write(ackResponse.getBytes());
                 outputStream.flush();
                 continue;
@@ -176,6 +178,7 @@ public class ReplicaConnectionHandler implements Runnable {
 class RESPParser {
 
     private final InputStream in;
+    private long bytesRead = 0;
 
     public RESPParser(InputStream in) {
         this.in = in;
@@ -190,15 +193,19 @@ class RESPParser {
 
         for (int i = 0; i < arrayLength; i++) {
             if (in.read() != '$') throw new IOException("Expected bulk string");
-
+            incrBytes(1);
             int len = readInt();
             byte[] data = in.readNBytes(len);
-            ReplicaConfig.incrOffset(data.length);
-            in.readNBytes(2); // \r\n
+            incrBytes(len);
+
+            in.readNBytes(2);
+            incrBytes(2);
 
             elements.add(new String(data));
         }
 
+        ReplicaConfig.incrOffset(bytesRead);
+        bytesRead=0;
         return elements;
     }
 
@@ -206,13 +213,19 @@ class RESPParser {
         StringBuilder sb = new StringBuilder();
         int b;
         while ((b = in.read()) != -1) {
+            incrBytes(1);
             if ((char) b == '\r') {
-                in.read(); // consume \n
+                int n = in.read();
+                if (n != -1) incrBytes(1);
                 break;
             }
             sb.append((char) b);
         }
         return Integer.parseInt(sb.toString());
+    }
+
+    private void incrBytes(long n) {
+        bytesRead += n;
     }
 }
 
