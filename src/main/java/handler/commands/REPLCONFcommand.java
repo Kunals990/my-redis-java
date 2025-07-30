@@ -14,6 +14,10 @@ public class REPLCONFcommand implements Command {
             return "+OK\r\n";
         }
 
+        if(args.get(1).equalsIgnoreCase("GETACK")){
+            return "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n";
+        }
+
         if(args.size()==3 && args.get(1).equalsIgnoreCase("listening-port")){
             int port = Integer.parseInt(args.get(2));
 
