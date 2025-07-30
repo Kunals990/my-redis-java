@@ -65,11 +65,11 @@ public class ReplicaConnectionHandler implements Runnable {
             OutputStream out = socket.getOutputStream();
             InputStream inputStream = new BufferedInputStream(socket.getInputStream());
 
-            completeHandShake1(out,in);
-            completeHandShake2(out,in);
-            completeHandShake3(out,in);
-            completeHandShake4(out,in);
-            startCommandReplicationLoop(out,in);
+            completeHandShake1(out,inputStream);
+            completeHandShake2(out,inputStream);
+            completeHandShake3(out,inputStream);
+            completeHandShake4(out,inputStream);
+            startCommandReplicationLoop(out,inputStream);
 
         } catch (IOException e) {
             logger.severe("Failed to connect to master: " + e.getMessage());
