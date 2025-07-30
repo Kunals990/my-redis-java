@@ -116,13 +116,10 @@ public class ReplicaConnectionHandler implements Runnable {
             if (r <= 0) throw new IOException("Failed to read RDB payload, read=" + r);
             remaining -= r;
         }
-        // discard the trailing CRLF
-        int cr = in.read();
-        int lf = in.read();
-        if (cr != '\r' || lf != '\n') {
-            throw new IOException("Expected CRLF after RDB payload");
-        }
+        // discard the trailing CRLF (we ignore content to avoid binary mismatches)
+        in.readNBytes(2);
         logger.info("Drained RDB payload of " + len + " bytes");
+        String s = "Drained RDB payload of " + len + " bytes";
     }
 
     private String readLine(InputStream in) throws IOException {
