@@ -43,7 +43,7 @@ public class CommandHandler {
         }
 
         String commandName = args.get(0).toUpperCase();
-        Command command = commandMap.get(commandName);
+        Command command = CommandRegistry.getCommand(commandName);
 
         if (commandName.equals("MULTI") || commandName.equals("EXEC") ||commandName.equals("DISCARD") ) {
             return command.execute(args, clientChannel);

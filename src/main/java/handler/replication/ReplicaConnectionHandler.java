@@ -3,6 +3,7 @@ package handler.replication;
 import config.ReplicaConfig;
 import config.ServerConfig;
 import handler.Command;
+import handler.CommandRegistry;
 import handler.commands.*;
 import util.RESPResponseParser;
 import util.RESPUtils;
@@ -164,7 +165,7 @@ public class ReplicaConnectionHandler implements Runnable {
                 continue;
             }
 
-            Command command = commandMap.get(cmd);
+            Command command = CommandRegistry.getCommand(cmd);
             if (command != null) {
                 // Execute without writing back to any channel
                 command.execute(commandArgs, null);
