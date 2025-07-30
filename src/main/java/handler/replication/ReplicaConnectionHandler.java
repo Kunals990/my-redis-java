@@ -1,5 +1,6 @@
 package handler.replication;
 
+import config.ReplicaConfig;
 import config.ServerConfig;
 import handler.Command;
 import handler.commands.*;
@@ -136,6 +137,8 @@ public class ReplicaConnectionHandler implements Runnable {
 
     }
 
+
+
     private void startCommandReplicationLoop(OutputStream outputStream,InputStream inputStream) throws IOException {
         RESPParser parser = new RESPParser(inputStream);
 
@@ -150,8 +153,9 @@ public class ReplicaConnectionHandler implements Runnable {
             if (cmd.equals("REPLCONF") && commandArgs.size() == 3
                     && commandArgs.get(1).equalsIgnoreCase("GETACK")
                     && commandArgs.get(2).equals("*")) {
+                String offset = Integer.toString((int) ReplicaConfig.getOffset()) ;
 
-                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n";
+                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"+offset.length()+"\r\n"+offset+"\r\n";
                 outputStream.write(ackResponse.getBytes());
                 outputStream.flush();
                 continue;
@@ -189,6 +193,7 @@ class RESPParser {
 
             int len = readInt();
             byte[] data = in.readNBytes(len);
+            ReplicaConfig.incrOffset(data.length);
             in.readNBytes(2); // \r\n
 
             elements.add(new String(data));
