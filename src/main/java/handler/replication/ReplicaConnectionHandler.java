@@ -168,12 +168,10 @@ class RESPParser {
 
     public List<String> parseArray() throws IOException {
         bytesRead = 0;
-        in.mark(1);
-        int b = in.read();
-        if (b == -1 || b != '*') return null;
-        in.reset();
 
-        in.read(); bytesRead++;
+        int b = in.read(); bytesRead++;
+        if (b == -1 || b != '*') return null;
+
         int count = readInt();
 
         List<String> list = new ArrayList<>();
