@@ -1,6 +1,8 @@
 package handler.replication;
 
 import config.ServerConfig;
+import handler.Command;
+import handler.commands.*;
 import util.RESPResponseParser;
 import util.RESPUtils;
 
@@ -10,6 +12,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Logger;
 
 public class ReplicaConnectionHandler implements Runnable {
@@ -23,6 +26,30 @@ public class ReplicaConnectionHandler implements Runnable {
         this.masterHost = masterHost;
         this.masterPort = masterPort;
     }
+
+    private static final Map<String, Command> commandMap = Map.ofEntries(
+            Map.entry("PING", new PingCommand()),
+            Map.entry("ECHO", new EchoCommand()),
+            Map.entry("SET", new SetCommand()),
+            Map.entry("GET", new GetCommand()),
+            Map.entry("RPUSH", new RPUSHcommand()),
+            Map.entry("LRANGE", new LRANGEcommand()),
+            Map.entry("LPUSH", new LPUSHcommand()),
+            Map.entry("LLEN", new LLENcommand()),
+            Map.entry("LPOP", new LPOPcommand()),
+            Map.entry("BLPOP", new BLPOPcommand()),
+            Map.entry("TYPE", new TYPEcommand()),
+            Map.entry("XADD",new XADDcommand()),
+            Map.entry("XRANGE",new XRANGEcommand()),
+            Map.entry("XREAD",new XREADcommand()),
+            Map.entry("INCR",new INCRcommand()),
+            Map.entry("MULTI",MULTIcommand.getInstance()),
+            Map.entry("EXEC",new EXECcommand()),
+            Map.entry("DISCARD",new DISCARDcommand()),
+            Map.entry("INFO",new INFOcommand()),
+            Map.entry("REPLCONF",new REPLCONFcommand()),
+            Map.entry("PSYNC",new PSYNCcommand())
+    );
 
     @Override
     public void run() {
@@ -108,5 +135,67 @@ public class ReplicaConnectionHandler implements Runnable {
 
     }
 
+    private void startCommandReplicationLoop(InputStream inputStream) throws IOException {
+        RESPParser parser = new RESPParser(inputStream);
+
+        while (true) {
+            List<String> commandArgs = parser.parseArray();
+            if (commandArgs == null || commandArgs.isEmpty()) {
+                continue;
+            }
+
+            String cmd = commandArgs.get(0).toUpperCase();
+            Command command = commandMap.get(cmd);
+            if (command != null) {
+                // Execute without writing back to any channel
+                command.execute(commandArgs, null); // Pass null if you use channel to reply
+            } else {
+                logger.warning("Unknown replicated command: " + cmd);
+            }
+        }
+    }
 
 }
+
+class RESPParser {
+
+    private final InputStream in;
+
+    public RESPParser(InputStream in) {
+        this.in = in;
+    }
+
+    public List<String> parseArray() throws IOException {
+        int b = in.read();
+        if (b == -1 || (char) b != '*') return null;
+
+        int arrayLength = readInt();
+        List<String> elements = new ArrayList<>();
+
+        for (int i = 0; i < arrayLength; i++) {
+            if (in.read() != '$') throw new IOException("Expected bulk string");
+
+            int len = readInt();
+            byte[] data = in.readNBytes(len);
+            in.readNBytes(2); // \r\n
+
+            elements.add(new String(data));
+        }
+
+        return elements;
+    }
+
+    private int readInt() throws IOException {
+        StringBuilder sb = new StringBuilder();
+        int b;
+        while ((b = in.read()) != -1) {
+            if ((char) b == '\r') {
+                in.read(); // consume \n
+                break;
+            }
+            sb.append((char) b);
+        }
+        return Integer.parseInt(sb.toString());
+    }
+}
+
