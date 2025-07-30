@@ -8,6 +8,7 @@ import handler.commands.*;
 import util.RESPResponseParser;
 import util.RESPUtils;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -16,6 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
+
+import static java.lang.System.in;
 
 public class ReplicaConnectionHandler implements Runnable {
 
@@ -60,7 +63,7 @@ public class ReplicaConnectionHandler implements Runnable {
             logger.info("Connected to master at " + masterHost + ":" + masterPort);
 
             OutputStream out = socket.getOutputStream();
-            InputStream in = socket.getInputStream();
+            InputStream inputStream = new BufferedInputStream(socket.getInputStream());
 
             completeHandShake1(out,in);
             completeHandShake2(out,in);
@@ -146,22 +149,18 @@ public class ReplicaConnectionHandler implements Runnable {
         RESPParser parser = new RESPParser(inputStream);
         long offset=0;
         while (true) {
-            System.out.println("Debug 1");
             offset = ReplicaConfig.getOffset();
-            System.out.println("Debug 1");
             List<String> commandArgs = parser.parseArray();
-            System.out.println("Debug 1");
             if (commandArgs == null || commandArgs.isEmpty()) {
                 continue;
             }
-            System.out.println("Debug 1");
 
             String cmd = commandArgs.get(0).toUpperCase();
 
             if (cmd.equalsIgnoreCase("REPLCONF") && commandArgs.size() == 3
                     && commandArgs.get(1).equalsIgnoreCase("GETACK")
                     && commandArgs.get(2).equals("*")) {
-                System.out.println("Debug 1");
+
                 String offsetStr = Long.toString(offset);
                 String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"+offsetStr.length()+"\r\n"+offsetStr+"\r\n";
                 outputStream.write(ackResponse.getBytes());
