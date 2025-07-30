@@ -1,6 +1,7 @@
 package handler.replication;
 
 import config.ReplicaConfig;
+import config.ServerConfig;
 import handler.Command;
 import handler.CommandRegistry;
 import handler.commands.*;
@@ -16,7 +17,6 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.logging.Logger;
 
 public class ReplicaConnectionHandler implements Runnable {
@@ -94,7 +94,7 @@ public class ReplicaConnectionHandler implements Runnable {
         out.write(RESPUtils.buildCommand(req));
         out.flush();
 
-        // read +FULLRESYNC ...
+        // read +FULLRESYNC ... line
         String status = readLine(in);
         if (!status.startsWith("+FULLRESYNC")) {
             throw new IOException("Unexpected PSYNC reply: " + status);
@@ -108,13 +108,19 @@ public class ReplicaConnectionHandler implements Runnable {
         String lenLine = readLine(in);
         int len = Integer.parseInt(lenLine);
 
-        // skip payload + CRLF
-        long toSkip = (long)len + 2;
-        long skipped = 0;
-        while (skipped < toSkip) {
-            long s = in.skip(toSkip - skipped);
-            if (s <= 0) throw new IOException("Failed to skip RDB payload at " + skipped);
-            skipped += s;
+        // read and discard payload
+        int remaining = len;
+        byte[] buf = new byte[4096];
+        while (remaining > 0) {
+            int r = in.read(buf, 0, Math.min(buf.length, remaining));
+            if (r <= 0) throw new IOException("Failed to read RDB payload, read=" + r);
+            remaining -= r;
+        }
+        // discard the trailing CRLF
+        int cr = in.read();
+        int lf = in.read();
+        if (cr != '\r' || lf != '\n') {
+            throw new IOException("Expected CRLF after RDB payload");
         }
         logger.info("Drained RDB payload of " + len + " bytes");
     }
@@ -179,7 +185,6 @@ class RESPParser {
         if (b == -1 || b != '*') return null;
         in.reset();
 
-        // read array header
         in.read(); bytesRead++;
         int count = readInt();
 
