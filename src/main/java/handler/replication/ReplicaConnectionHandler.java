@@ -153,15 +153,19 @@ public class ReplicaConnectionHandler implements Runnable {
             }
 
             String cmd = commandArgs.get(0).toUpperCase();
-
-            if (cmd.equals("REPLCONF") && commandArgs.size() == 3
+            System.out.println("Debug ");
+            if (cmd.equalsIgnoreCase("REPLCONF") && commandArgs.size() == 3
                     && commandArgs.get(1).equalsIgnoreCase("GETACK")
                     && commandArgs.get(2).equals("*")) {
-
+                System.out.println("Debug 1");
                 String offsetStr = Long.toString(offset);
+                System.out.println("Debug 2");
                 String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"+offsetStr.length()+"\r\n"+offsetStr+"\r\n";
+                System.out.println("Debug 3");
                 outputStream.write(ackResponse.getBytes());
+                System.out.println("Debug 4");
                 outputStream.flush();
+                System.out.println("Debug 5");
                 continue;
             }
 
