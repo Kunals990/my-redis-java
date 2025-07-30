@@ -142,9 +142,9 @@ public class ReplicaConnectionHandler implements Runnable {
     private void startCommandReplicationLoop(OutputStream outputStream,InputStream inputStream) throws IOException {
 
         RESPParser parser = new RESPParser(inputStream);
-
+        long offset=0;
         while (true) {
-            long offset = ReplicaConfig.getOffset();
+            offset = ReplicaConfig.getOffset();
             List<String> commandArgs = parser.parseArray();
             if (commandArgs == null || commandArgs.isEmpty()) {
                 continue;
