@@ -44,17 +44,17 @@ public class ReplicaConnectionHandler implements Runnable {
             Map.entry("LPOP", new LPOPcommand()),
             Map.entry("BLPOP", new BLPOPcommand()),
             Map.entry("TYPE", new TYPEcommand()),
-            Map.entry("XADD",new XADDcommand()),
-            Map.entry("XRANGE",new XRANGEcommand()),
-            Map.entry("XREAD",new XREADcommand()),
-            Map.entry("INCR",new INCRcommand()),
-            Map.entry("MULTI",MULTIcommand.getInstance()),
-            Map.entry("EXEC",new EXECcommand()),
-            Map.entry("DISCARD",new DISCARDcommand()),
-            Map.entry("INFO",new INFOcommand()),
-            Map.entry("REPLCONF",new REPLCONFcommand()),
-            Map.entry("PSYNC",new PSYNCcommand()),
-            Map.entry("WAIT",new WAITcommand())
+            Map.entry("XADD", new XADDcommand()),
+            Map.entry("XRANGE", new XRANGEcommand()),
+            Map.entry("XREAD", new XREADcommand()),
+            Map.entry("INCR", new INCRcommand()),
+            Map.entry("MULTI", MULTIcommand.getInstance()),
+            Map.entry("EXEC", new EXECcommand()),
+            Map.entry("DISCARD", new DISCARDcommand()),
+            Map.entry("INFO", new INFOcommand()),
+            Map.entry("REPLCONF", new REPLCONFcommand()),
+            Map.entry("PSYNC", new PSYNCcommand()),
+            Map.entry("WAIT", new WAITcommand())
     );
 
     @Override
@@ -64,12 +64,12 @@ public class ReplicaConnectionHandler implements Runnable {
 
             OutputStream out = socket.getOutputStream();
             InputStream inputStream = new BufferedInputStream(socket.getInputStream());
-
-            completeHandShake1(out,inputStream);
-            completeHandShake2(out,inputStream);
-            completeHandShake3(out,inputStream);
-            completeHandShake4(out,inputStream);
-            startCommandReplicationLoop(out,inputStream);
+            BufferedInputStream bufferedInputStream = new BufferedInputStream(socket.getInputStream());
+            completeHandShake1(out, inputStream);
+            completeHandShake2(out, inputStream);
+            completeHandShake3(out, inputStream);
+            completeHandShake4(out, inputStream);
+            startCommandReplicationLoop(out, bufferedInputStream);
 
         } catch (IOException e) {
             logger.severe("Failed to connect to master: " + e.getMessage());
@@ -85,8 +85,8 @@ public class ReplicaConnectionHandler implements Runnable {
 
         byte[] buffer = new byte[1024];
         int read = inputStream.read(buffer);
-        String response = RESPResponseParser.parseSimpleString(buffer,read);
-        if(!"PONG".equalsIgnoreCase(response)){
+        String response = RESPResponseParser.parseSimpleString(buffer, read);
+        if (!"PONG".equalsIgnoreCase(response)) {
             throw new IOException("Handshake stage one failed. Got: " + response);
         }
     }
@@ -102,8 +102,8 @@ public class ReplicaConnectionHandler implements Runnable {
 
         byte[] buffer = new byte[1024];
         int read = inputStream.read(buffer);
-        String response = RESPResponseParser.parseSimpleString(buffer,read);
-        if(!"OK".equalsIgnoreCase(response)){
+        String response = RESPResponseParser.parseSimpleString(buffer, read);
+        if (!"OK".equalsIgnoreCase(response)) {
             throw new IOException("Handshake stage two failed. Got: " + response);
         }
 
@@ -120,13 +120,13 @@ public class ReplicaConnectionHandler implements Runnable {
 
         byte[] buffer = new byte[1024];
         int read = inputStream.read(buffer);
-        String response = RESPResponseParser.parseSimpleString(buffer,read);
-        if(!"OK".equalsIgnoreCase(response)){
+        String response = RESPResponseParser.parseSimpleString(buffer, read);
+        if (!"OK".equalsIgnoreCase(response)) {
             throw new IOException("Handshake stage three failed. Got: " + response);
         }
     }
 
-    private void completeHandShake4(OutputStream outputStream,InputStream inputStream) throws IOException {
+    private void completeHandShake4(OutputStream outputStream, InputStream inputStream) throws IOException {
         List<String> request = new ArrayList<>();
         request.add("PSYNC");
         request.add("?");
@@ -138,16 +138,14 @@ public class ReplicaConnectionHandler implements Runnable {
         byte[] buffer = new byte[1024];
         int read = inputStream.read(buffer);
         //RDB File
-        String response = RESPResponseParser.parseSimpleString(buffer,read);
+        String response = RESPResponseParser.parseSimpleString(buffer, read);
 
     }
 
 
-
-    private void startCommandReplicationLoop(OutputStream outputStream,InputStream inputStream) throws IOException {
-
+    private void startCommandReplicationLoop(OutputStream outputStream, BufferedInputStream inputStream) throws IOException {
         RESPParser parser = new RESPParser(inputStream);
-        long offset=0;
+        long offset = 0;
         while (true) {
             offset = ReplicaConfig.getOffset();
             List<String> commandArgs = parser.parseArray();
@@ -162,7 +160,7 @@ public class ReplicaConnectionHandler implements Runnable {
                     && commandArgs.get(2).equals("*")) {
 
                 String offsetStr = Long.toString(offset);
-                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"+offsetStr.length()+"\r\n"+offsetStr+"\r\n";
+                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$" + offsetStr.length() + "\r\n" + offsetStr + "\r\n";
                 outputStream.write(ackResponse.getBytes());
                 outputStream.flush();
                 continue;
@@ -180,32 +178,35 @@ public class ReplicaConnectionHandler implements Runnable {
 
 }
 
+
 class RESPParser {
 
-    private final InputStream in;
+    private final BufferedInputStream in;
     private long bytesRead = 0;
 
-    public RESPParser(InputStream in) {
+    public RESPParser(BufferedInputStream in) {
         this.in = in;
     }
 
     public List<String> parseArray() throws IOException {
-        bytesRead=0;
+        bytesRead = 0;
 
-        if(in.available()==0){
-            return null;
-        }
-
+        in.mark(1);
         int b = in.read();
         if (b == -1 || (char) b != '*') return null;
+        in.reset();
+
+        b = in.read();
         incrBytes(1);
 
         int arrayLength = readInt();
         List<String> elements = new ArrayList<>();
 
         for (int i = 0; i < arrayLength; i++) {
-            if (in.read() != '$') throw new IOException("Expected bulk string");
+            int type = in.read();
             incrBytes(1);
+            if (type != '$') throw new IOException("Expected bulk string");
+
             int len = readInt();
             byte[] data = in.readNBytes(len);
             incrBytes(len);
@@ -217,7 +218,6 @@ class RESPParser {
         }
 
         ReplicaConfig.incrOffset(bytesRead);
-
         return elements;
     }
 
@@ -227,8 +227,8 @@ class RESPParser {
         while ((b = in.read()) != -1) {
             incrBytes(1);
             if ((char) b == '\r') {
-                int n = in.read();
-                if (n != -1) incrBytes(1);
+                int next = in.read();
+                if (next != -1) incrBytes(1);
                 break;
             }
             sb.append((char) b);
@@ -240,4 +240,5 @@ class RESPParser {
         bytesRead += n;
     }
 }
+
 
