@@ -108,13 +108,8 @@ public class ReplicaConnectionHandler implements Runnable {
         String lenLine = readLine(in);
         int len = Integer.parseInt(lenLine);
 
-        // skip over RDB payload bytes + trailing CRLF without consuming extra incoming commands
-        long toSkip = (long) len + 2;
-        while (toSkip > 0) {
-            long skipped = in.skip(toSkip);
-            if (skipped <= 0) throw new IOException("Failed to skip RDB payload, skipped=" + skipped);
-            toSkip -= skipped;
-        }
+        // read and discard the exact RDB payload + its trailing CRLF
+        in.readNBytes(len + 2);
         logger.info("Drained RDB payload of " + len + " bytes");
     }
 
