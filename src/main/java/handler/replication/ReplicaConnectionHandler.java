@@ -4,24 +4,24 @@ import config.ReplicaConfig;
 import handler.Command;
 import handler.CommandRegistry;
 import handler.commands.*;
-import util.RESPResponseParser;
 import util.RESPUtils;
+import util.RESPResponseParser;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
-
 public class ReplicaConnectionHandler implements Runnable {
 
     private static final Logger logger = Logger.getLogger(ReplicaConnectionHandler.class.getName());
-
     private final String masterHost;
     private final int masterPort;
 
@@ -37,6 +37,7 @@ public class ReplicaConnectionHandler implements Runnable {
 
             OutputStream out = socket.getOutputStream();
             BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
+
             completeHandShake1(out, in);
             completeHandShake2(out, in);
             completeHandShake3(out, in);
@@ -48,136 +49,122 @@ public class ReplicaConnectionHandler implements Runnable {
         }
     }
 
-    private void completeHandShake1(OutputStream outputStream, InputStream inputStream) throws IOException {
-        List<String> request = new ArrayList<>();
-        request.add("PING");
-        byte[] pingCommand = RESPUtils.buildCommand(request);
-        outputStream.write(pingCommand);
-        outputStream.flush();
+    private void completeHandShake1(OutputStream out, InputStream in) throws IOException {
+        List<String> req = List.of("PING");
+        out.write(RESPUtils.buildCommand(req));
+        out.flush();
 
-        byte[] buffer = new byte[1024];
-        int read = inputStream.read(buffer);
-        String response = RESPResponseParser.parseSimpleString(buffer, read);
-        if (!"PONG".equalsIgnoreCase(response)) {
-            throw new IOException("Handshake stage one failed. Got: " + response);
+        byte[] buf = new byte[1024];
+        int n = in.read(buf);
+        String resp = RESPResponseParser.parseSimpleString(buf, n);
+        if (!"PONG".equalsIgnoreCase(resp)) {
+            throw new IOException("Handshake1 failed, expected PONG, got: " + resp);
         }
     }
 
-    private void completeHandShake2(OutputStream outputStream, InputStream inputStream) throws IOException {
-        List<String> request = new ArrayList<>();
-        request.add("REPLCONF");
-        request.add("listening-port");
-        request.add("6380");
-        byte[] replConfig1 = RESPUtils.buildCommand(request);
-        outputStream.write(replConfig1);
-        outputStream.flush();
+    private void completeHandShake2(OutputStream out, InputStream in) throws IOException {
+        List<String> req = List.of("REPLCONF", "listening-port", "6380");
+        out.write(RESPUtils.buildCommand(req));
+        out.flush();
 
-        byte[] buffer = new byte[1024];
-        int read = inputStream.read(buffer);
-        String response = RESPResponseParser.parseSimpleString(buffer, read);
-        if (!"OK".equalsIgnoreCase(response)) {
-            throw new IOException("Handshake stage two failed. Got: " + response);
+        byte[] buf = new byte[1024];
+        int n = in.read(buf);
+        String resp = RESPResponseParser.parseSimpleString(buf, n);
+        if (!"OK".equalsIgnoreCase(resp)) {
+            throw new IOException("Handshake2 failed, expected OK, got: " + resp);
         }
-
     }
 
-    private void completeHandShake3(OutputStream outputStream, InputStream inputStream) throws IOException {
-        List<String> request = new ArrayList<>();
-        request.add("REPLCONF");
-        request.add("capa");
-        request.add("psync2");
-        byte[] replConfig1 = RESPUtils.buildCommand(request);
-        outputStream.write(replConfig1);
-        outputStream.flush();
+    private void completeHandShake3(OutputStream out, InputStream in) throws IOException {
+        List<String> req = List.of("REPLCONF", "capa", "psync2");
+        out.write(RESPUtils.buildCommand(req));
+        out.flush();
 
-        byte[] buffer = new byte[1024];
-        int read = inputStream.read(buffer);
-        String response = RESPResponseParser.parseSimpleString(buffer, read);
-        if (!"OK".equalsIgnoreCase(response)) {
-            throw new IOException("Handshake stage three failed. Got: " + response);
+        byte[] buf = new byte[1024];
+        int n = in.read(buf);
+        String resp = RESPResponseParser.parseSimpleString(buf, n);
+        if (!"OK".equalsIgnoreCase(resp)) {
+            throw new IOException("Handshake3 failed, expected OK, got: " + resp);
         }
     }
 
     private void completeHandShake4(OutputStream out, InputStream in) throws IOException {
+        // send PSYNC ? -1
         List<String> req = List.of("PSYNC", "?", "-1");
         out.write(RESPUtils.buildCommand(req));
         out.flush();
 
-        byte[] statusBuf = new byte[1024];
-        int n = in.read(statusBuf);
-        if (n <= 0) throw new IOException("EOF while waiting for FULLRESYNC");
-        String status = RESPResponseParser.parseSimpleString(statusBuf, n);
+        // read +FULLRESYNC ...
+        String status = readLine(in);
+        if (!status.startsWith("+FULLRESYNC")) {
+            throw new IOException("Unexpected PSYNC reply: " + status);
+        }
+
+        // expect RDB bulk header: $<len>\r\n
         int dollar = in.read();
         if (dollar != '$') {
-            throw new IOException("Expected '$' starting RDB bulk‐string, got: " + (char)dollar);
+            throw new IOException("Expected '$' for RDB bulk, got: " + (char)dollar);
         }
-        int len = readInt(in);
+        String lenLine = readLine(in);
+        int len = Integer.parseInt(lenLine);
 
+        // skip payload + CRLF
+        long toSkip = (long)len + 2;
         long skipped = 0;
-        while (skipped < len + 2) {
-            long s = in.skip(len + 2 - skipped);
-            if (s <= 0) throw new IOException("Failed to skip RDB payload");
+        while (skipped < toSkip) {
+            long s = in.skip(toSkip - skipped);
+            if (s <= 0) throw new IOException("Failed to skip RDB payload at " + skipped);
             skipped += s;
         }
+        logger.info("Drained RDB payload of " + len + " bytes");
     }
 
-    private int readInt(InputStream in) throws IOException {
+    private String readLine(InputStream in) throws IOException {
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
         int b;
-        int result = 0;
         while ((b = in.read()) != -1) {
             if (b == '\r') {
-                int nl = in.read(); // should be '\n'
+                int nl = in.read();
                 if (nl != '\n') throw new IOException("Expected LF after CR");
                 break;
             }
-            if (b < '0' || b > '9') {
-                throw new IOException("Non‐digit in length: " + (char)b);
-            }
-            result = result * 10 + (b - '0');
+            bout.write(b);
         }
-        if (b == -1) throw new IOException("EOF reading length");
-        return result;
+        return bout.toString(StandardCharsets.US_ASCII.name());
     }
 
-
-    private void startCommandReplicationLoop(OutputStream outputStream, BufferedInputStream inputStream) throws IOException {
-        RESPParser parser = new RESPParser(inputStream);
-        long offset = 0;
+    private void startCommandReplicationLoop(OutputStream out, BufferedInputStream in) throws IOException {
+        RESPParser parser = new RESPParser(in);
         while (true) {
-            offset = ReplicaConfig.getOffset();
-            List<String> commandArgs = parser.parseArray();
-            if (commandArgs == null || commandArgs.isEmpty()) {
+            long offset = ReplicaConfig.getOffset();
+            List<String> args = parser.parseArray();
+            if (args == null || args.isEmpty()) continue;
+
+            String cmd = args.get(0).toUpperCase();
+            if ("REPLCONF".equals(cmd)
+                    && args.size() == 3
+                    && "GETACK".equalsIgnoreCase(args.get(1))
+                    && "*".equals(args.get(2))) {
+
+                String off = Long.toString(offset);
+                String ack = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"
+                        + off.length() + "\r\n" + off + "\r\n";
+                out.write(ack.getBytes());
+                out.flush();
                 continue;
             }
 
-            String cmd = commandArgs.get(0).toUpperCase();
-
-            if (cmd.equalsIgnoreCase("REPLCONF") && commandArgs.size() == 3
-                    && commandArgs.get(1).equalsIgnoreCase("GETACK")
-                    && commandArgs.get(2).equals("*")) {
-
-                String offsetStr = Long.toString(offset);
-                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$" + offsetStr.length() + "\r\n" + offsetStr + "\r\n";
-                outputStream.write(ackResponse.getBytes());
-                outputStream.flush();
-                continue;
-            }
-
-            Command command = CommandRegistry.getCommand(cmd);
-            if (command != null) {
-                // Execute without writing back to any channel
-                command.execute(commandArgs, null);
+            Command cmdImpl = CommandRegistry.getCommand(cmd);
+            if (cmdImpl != null) {
+                cmdImpl.execute(args, null);
             } else {
-                logger.warning("Unknown replicated command: " + cmd);
+                logger.warning("Unknown replication cmd: " + cmd);
             }
         }
     }
-
 }
 
-
 class RESPParser {
-
     private final BufferedInputStream in;
     private long bytesRead = 0;
 
@@ -187,55 +174,41 @@ class RESPParser {
 
     public List<String> parseArray() throws IOException {
         bytesRead = 0;
-
         in.mark(1);
         int b = in.read();
-        if (b == -1 || (char) b != '*') return null;
+        if (b == -1 || b != '*') return null;
         in.reset();
 
-        b = in.read();
-        incrBytes(1);
+        // read array header
+        in.read(); bytesRead++;
+        int count = readInt();
 
-        int arrayLength = readInt();
-        List<String> elements = new ArrayList<>();
-
-        for (int i = 0; i < arrayLength; i++) {
-            int type = in.read();
-            incrBytes(1);
-            if (type != '$') throw new IOException("Expected bulk string");
-
+        List<String> list = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            int type = in.read(); bytesRead++;
+            if (type != '$') throw new IOException("Expected '$' but got " + (char)type);
             int len = readInt();
-            byte[] data = in.readNBytes(len);
-            incrBytes(len);
-
-            in.readNBytes(2);
-            incrBytes(2);
-
-            elements.add(new String(data));
+            byte[] data = in.readNBytes(len); bytesRead += len;
+            in.readNBytes(2); bytesRead += 2;
+            list.add(new String(data, StandardCharsets.UTF_8));
         }
-
         ReplicaConfig.incrOffset(bytesRead);
-        return elements;
+        return list;
     }
 
     private int readInt() throws IOException {
-        StringBuilder sb = new StringBuilder();
+        int result = 0;
         int b;
         while ((b = in.read()) != -1) {
-            incrBytes(1);
-            if ((char) b == '\r') {
-                int next = in.read();
-                if (next != -1) incrBytes(1);
+            bytesRead++;
+            if (b == '\r') {
+                in.read(); bytesRead++;
                 break;
             }
-            sb.append((char) b);
+            if (b < '0' || b > '9') throw new IOException("Invalid digit in length: " + b);
+            result = result * 10 + (b - '0');
         }
-        return Integer.parseInt(sb.toString());
-    }
-
-    private void incrBytes(long n) {
-        bytesRead += n;
+        if (b == -1) throw new IOException("Unexpected EOF reading length");
+        return result;
     }
 }
-
-
