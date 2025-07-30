@@ -63,6 +63,7 @@ public class ReplicaConnectionHandler implements Runnable {
             completeHandShake2(out,in);
             completeHandShake3(out,in);
             completeHandShake4(out,in);
+            startCommandReplicationLoop(in);
 
         } catch (IOException e) {
             logger.severe("Failed to connect to master: " + e.getMessage());
