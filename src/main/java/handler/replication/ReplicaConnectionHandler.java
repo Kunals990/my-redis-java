@@ -63,7 +63,7 @@ public class ReplicaConnectionHandler implements Runnable {
             completeHandShake2(out,in);
             completeHandShake3(out,in);
             completeHandShake4(out,in);
-            startCommandReplicationLoop(in);
+            startCommandReplicationLoop(out,in);
 
         } catch (IOException e) {
             logger.severe("Failed to connect to master: " + e.getMessage());
@@ -136,7 +136,7 @@ public class ReplicaConnectionHandler implements Runnable {
 
     }
 
-    private void startCommandReplicationLoop(InputStream inputStream) throws IOException {
+    private void startCommandReplicationLoop(OutputStream outputStream,InputStream inputStream) throws IOException {
         RESPParser parser = new RESPParser(inputStream);
 
         while (true) {
@@ -146,10 +146,21 @@ public class ReplicaConnectionHandler implements Runnable {
             }
 
             String cmd = commandArgs.get(0).toUpperCase();
+
+            if (cmd.equals("REPLCONF") && commandArgs.size() == 3
+                    && commandArgs.get(1).equalsIgnoreCase("GETACK")
+                    && commandArgs.get(2).equals("*")) {
+
+                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n";
+                outputStream.write(ackResponse.getBytes());
+                outputStream.flush();
+                continue;
+            }
+
             Command command = commandMap.get(cmd);
             if (command != null) {
                 // Execute without writing back to any channel
-                command.execute(commandArgs, null); // Pass null if you use channel to reply
+                command.execute(commandArgs, null);
             } else {
                 logger.warning("Unknown replicated command: " + cmd);
             }
