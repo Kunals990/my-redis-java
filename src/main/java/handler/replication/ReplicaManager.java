@@ -1,0 +1,29 @@
+package handler.replication;
+
+import java.nio.channels.SocketChannel;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+public class ReplicaManager {
+
+    private static final List<ReplicaInfo> replicas = new CopyOnWriteArrayList<>();
+
+    public static void addReplica(SocketChannel channel, int listeningPort) {
+        replicas.add(new ReplicaInfo(channel, listeningPort));
+        System.out.println("[ReplicaManager] Added replica on port: " + listeningPort);
+    }
+
+    public static List<ReplicaInfo> getReplicas() {
+        return replicas;
+    }
+
+    public static void removeReplica(SocketChannel channel) {
+        replicas.removeIf(r -> r.getChannel().equals(channel));
+        System.out.println("[ReplicaManager] Removed replica: " + channel);
+    }
+
+    public static void clearAll() {
+        replicas.clear();
+        System.out.println("[ReplicaManager] Cleared all replicas.");
+    }
+}

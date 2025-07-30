@@ -1,8 +1,15 @@
 package handler.commands;
 
+import config.ServerConfig;
 import handler.Command;
+import handler.replication.ReplicaInfo;
+import handler.replication.ReplicaManager;
+import protocols.RESPBuilder;
 import store.KeyValueStore;
+import util.RESPUtils;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.List;
 
@@ -29,6 +36,21 @@ public class SetCommand implements Command {
         String value = args.get(2);
 
         store.set(key,value,expiry);
+
+        if(ServerConfig.getRole().equalsIgnoreCase("master")){
+            List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
+            byte[] commandBytes = RESPUtils.buildCommand(args);
+            for(ReplicaInfo replica :replicas ){
+                try {
+                    SocketChannel replicaChannel = replica.getChannel();
+                    replicaChannel.write(ByteBuffer.wrap(commandBytes));
+                }catch (IOException e){
+                    return "-ERR Invalid Replica "+replica;
+                }
+
+            }
+        }
+
         return "+OK\r\n";
     }
 }
