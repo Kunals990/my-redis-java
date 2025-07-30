@@ -12,6 +12,6 @@ public class WAITcommand implements Command {
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) throws IOException {
         List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
-        return ":"+replicas.size()+"0\r\n";
+        return ":"+replicas.size()+"\r\n";
     }
 }
