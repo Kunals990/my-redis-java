@@ -191,6 +191,11 @@ class RESPParser {
 
     public List<String> parseArray() throws IOException {
         bytesRead=0;
+
+        if(in.available()==0){
+            return null;
+        }
+
         int b = in.read();
         if (b == -1 || (char) b != '*') return null;
         incrBytes(1);
