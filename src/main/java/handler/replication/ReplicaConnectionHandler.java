@@ -1,7 +1,6 @@
 package handler.replication;
 
 import config.ReplicaConfig;
-import config.ServerConfig;
 import handler.Command;
 import handler.CommandRegistry;
 import handler.commands.*;
@@ -18,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
-import static java.lang.System.in;
 
 public class ReplicaConnectionHandler implements Runnable {
 
@@ -32,44 +30,18 @@ public class ReplicaConnectionHandler implements Runnable {
         this.masterPort = masterPort;
     }
 
-    private static final Map<String, Command> commandMap = Map.ofEntries(
-            Map.entry("PING", new PingCommand()),
-            Map.entry("ECHO", new EchoCommand()),
-            Map.entry("SET", new SetCommand()),
-            Map.entry("GET", new GetCommand()),
-            Map.entry("RPUSH", new RPUSHcommand()),
-            Map.entry("LRANGE", new LRANGEcommand()),
-            Map.entry("LPUSH", new LPUSHcommand()),
-            Map.entry("LLEN", new LLENcommand()),
-            Map.entry("LPOP", new LPOPcommand()),
-            Map.entry("BLPOP", new BLPOPcommand()),
-            Map.entry("TYPE", new TYPEcommand()),
-            Map.entry("XADD", new XADDcommand()),
-            Map.entry("XRANGE", new XRANGEcommand()),
-            Map.entry("XREAD", new XREADcommand()),
-            Map.entry("INCR", new INCRcommand()),
-            Map.entry("MULTI", MULTIcommand.getInstance()),
-            Map.entry("EXEC", new EXECcommand()),
-            Map.entry("DISCARD", new DISCARDcommand()),
-            Map.entry("INFO", new INFOcommand()),
-            Map.entry("REPLCONF", new REPLCONFcommand()),
-            Map.entry("PSYNC", new PSYNCcommand()),
-            Map.entry("WAIT", new WAITcommand())
-    );
-
     @Override
     public void run() {
         try (Socket socket = new Socket(masterHost, masterPort)) {
             logger.info("Connected to master at " + masterHost + ":" + masterPort);
 
             OutputStream out = socket.getOutputStream();
-            InputStream inputStream = new BufferedInputStream(socket.getInputStream());
-            BufferedInputStream bufferedInputStream = new BufferedInputStream(socket.getInputStream());
-            completeHandShake1(out, inputStream);
-            completeHandShake2(out, inputStream);
-            completeHandShake3(out, inputStream);
-            completeHandShake4(out, inputStream);
-            startCommandReplicationLoop(out, bufferedInputStream);
+            BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
+            completeHandShake1(out, in);
+            completeHandShake2(out, in);
+            completeHandShake3(out, in);
+            completeHandShake4(out, in);
+            startCommandReplicationLoop(out, in);
 
         } catch (IOException e) {
             logger.severe("Failed to connect to master: " + e.getMessage());
@@ -126,20 +98,45 @@ public class ReplicaConnectionHandler implements Runnable {
         }
     }
 
-    private void completeHandShake4(OutputStream outputStream, InputStream inputStream) throws IOException {
-        List<String> request = new ArrayList<>();
-        request.add("PSYNC");
-        request.add("?");
-        request.add("-1");
-        byte[] psync = RESPUtils.buildCommand(request);
-        outputStream.write(psync);
-        outputStream.flush();
+    private void completeHandShake4(OutputStream out, InputStream in) throws IOException {
+        List<String> req = List.of("PSYNC", "?", "-1");
+        out.write(RESPUtils.buildCommand(req));
+        out.flush();
 
-        byte[] buffer = new byte[1024];
-        int read = inputStream.read(buffer);
-        //RDB File
-        String response = RESPResponseParser.parseSimpleString(buffer, read);
+        byte[] statusBuf = new byte[1024];
+        int n = in.read(statusBuf);
+        if (n <= 0) throw new IOException("EOF while waiting for FULLRESYNC");
+        String status = RESPResponseParser.parseSimpleString(statusBuf, n);
+        int dollar = in.read();
+        if (dollar != '$') {
+            throw new IOException("Expected '$' starting RDB bulk‐string, got: " + (char)dollar);
+        }
+        int len = readInt(in);
 
+        long skipped = 0;
+        while (skipped < len + 2) {
+            long s = in.skip(len + 2 - skipped);
+            if (s <= 0) throw new IOException("Failed to skip RDB payload");
+            skipped += s;
+        }
+    }
+
+    private int readInt(InputStream in) throws IOException {
+        int b;
+        int result = 0;
+        while ((b = in.read()) != -1) {
+            if (b == '\r') {
+                int nl = in.read(); // should be '\n'
+                if (nl != '\n') throw new IOException("Expected LF after CR");
+                break;
+            }
+            if (b < '0' || b > '9') {
+                throw new IOException("Non‐digit in length: " + (char)b);
+            }
+            result = result * 10 + (b - '0');
+        }
+        if (b == -1) throw new IOException("EOF reading length");
+        return result;
     }
 
 
