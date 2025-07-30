@@ -50,7 +50,9 @@ public class SetCommand implements Command {
 
             }
         }
-
+        if(ServerConfig.getRole().equalsIgnoreCase("slave")){
+            return null;
+        }
         return "+OK\r\n";
     }
 }

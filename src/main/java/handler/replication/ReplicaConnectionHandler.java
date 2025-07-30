@@ -103,6 +103,7 @@ public class ReplicaConnectionHandler implements Runnable {
 
         byte[] buffer = new byte[1024];
         int read = inputStream.read(buffer);
+        //RDB File
         String response = RESPResponseParser.parseSimpleString(buffer,read);
 
     }
