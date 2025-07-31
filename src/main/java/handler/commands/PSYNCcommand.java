@@ -29,7 +29,7 @@ public class PSYNCcommand implements Command {
 
         String header = "$" + rdbBytes.length + "\r\n";
         clientChannel.write(ByteBuffer.wrap(header.getBytes()));
-        clientChannel.write(ByteBuffer.wrap(rdbBytes));
+        clientChannel.write(ByteBuffer.wrap("\r\n".getBytes()));
     }
 
     private byte[] hexToBytes(String hex) {
