@@ -61,7 +61,7 @@ public class Main {
         }
 
         if (ServerConfig.isMaster()) {
-            new Thread(new GetAckBroadcaster()).start();
+//            new Thread(new GetAckBroadcaster()).start();
             new Thread(new WaitClientTimeoutChecker()).start();
         }
         new Thread(new BlockedClientTimeoutChecker()).start();
