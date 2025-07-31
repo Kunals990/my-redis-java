@@ -108,20 +108,17 @@ public class MasterLink {
             ByteBuffer b = outbound.peek();
             channel.write(b);
             if (b.hasRemaining()) {
-                // Not fully written; keep OP_WRITE set
+                // Not fully written; keep OP_WRITE set and return.
+                // The selector will notify us again when the channel is ready.
                 return;
             }
+            // Buffer was fully written, remove it from the queue.
             outbound.poll();
         }
 
-        // If we're ONLINE, periodically ACK
-        if (state == HandshakeState.ONLINE) {
-            enqueue(key, RESPUtils.buildCommand(
-                    List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
-            return;
-        }
-
-        // Otherwise, back to reading and wait for next handshake reply
+        // --- FIX ---
+        // The queue is empty. We are done writing for now.
+        // Switch back to only being interested in reading from the master.
         key.interestOps(SelectionKey.OP_READ);
     }
 
@@ -177,12 +174,13 @@ public class MasterLink {
                     List<String> args = (List<String>) resp;
                     String cmd = args.get(0).toUpperCase();
                     if ("REPLCONF".equalsIgnoreCase(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
-//                        enqueue(key, RESPUtils.buildCommand(
-//                                List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
-//                        handleWrite(key);
-                        byte[] ackCmd = RESPUtils.buildCommand(List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
-                        System.out.println("[slave] → SEND “" + new String(ackCmd, StandardCharsets.UTF_8).trim() + "”");
-                        channel.write(ByteBuffer.wrap(ackCmd));
+                        // --- FIX START ---
+                        // DO NOT write directly. Use the non-blocking queue.
+                        byte[] ackCmd = RESPUtils.buildCommand(
+                                List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
+                        System.out.println("[slave] → QUEUEING “" + new String(ackCmd, StandardCharsets.UTF_8).trim() + "”");
+                        enqueue(key, ackCmd);
+                        // --- FIX END ---
                     } else {
                         Command c = CommandRegistry.getCommand(cmd);
                         if (c != null) {
