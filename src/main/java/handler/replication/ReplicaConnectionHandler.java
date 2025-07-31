@@ -1,12 +1,8 @@
 package handler.replication;
 
-import config.ReplicaConfig;
-import config.ServerConfig;
 import handler.Command;
 import handler.CommandRegistry;
-import handler.commands.*;
 import util.RESPUtils;
-import util.RESPResponseParser;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;

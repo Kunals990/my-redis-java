@@ -7,14 +7,12 @@ import handler.replication.ReplicaInfo;
 import handler.replication.ReplicaManager;
 import store.KeyValueStore;
 import util.RESPUtils;
-
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.List;
 
 public class SetCommand implements Command {
-
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) {
         if (args.size() < 3) {
@@ -32,7 +30,6 @@ public class SetCommand implements Command {
                 }
             }
         }
-
         KeyValueStore.getInstance().set(key, value, px);
 
         if (ServerConfig.isMaster()) {
@@ -48,11 +45,7 @@ public class SetCommand implements Command {
         if (replicas.isEmpty()) {
             return;
         }
-
         byte[] commandBytes = RESPUtils.buildCommand(args);
-
-        // *** THIS IS THE CRITICAL FIX ***
-        // Increment the master's offset by the EXACT number of bytes being propagated.
         ServerConfig.incrementMasterOffset(commandBytes.length);
 
         for (ReplicaInfo replica : replicas) {

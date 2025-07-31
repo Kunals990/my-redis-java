@@ -1,10 +1,8 @@
 import config.ServerConfig;
-import handler.BlockedClientTimeoutChecker;
 import handler.CommandHandler;
 import handler.SelectorRegistry;
-import handler.WaitClientTimeoutChecker;
 import handler.replication.*;
-import protocols.RESPParser; // Ensure this is your ByteBuffer-based parser
+import protocols.RESPParser;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -22,7 +20,6 @@ import java.util.concurrent.Executors;
 
 public class Main {
 
-    // A map to store a buffer for each client connection.
     private static final Map<SocketChannel, ByteBuffer> clientBuffers = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws IOException {
@@ -30,7 +27,6 @@ public class Main {
         String masterHost = null;
         int masterPort = -1;
 
-        // --- Argument Parsing ---
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--port") && i + 1 < args.length) {
                 port = Integer.parseInt(args[i + 1]);
@@ -43,7 +39,6 @@ public class Main {
             }
         }
 
-        // --- Server Setup ---
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
         serverChannel.socket().bind(new InetSocketAddress(port));
@@ -53,7 +48,6 @@ public class Main {
         SelectorRegistry.setSelector(selector);
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-        // --- Role Determination and Background Threads ---
         if (masterHost != null && masterPort != -1) {
             ServerConfig.setRole("slave");
             ServerConfig.setMaster_host(masterHost);
@@ -70,12 +64,8 @@ public class Main {
         }
         new Thread(new BlockedClientTimeoutChecker()).start();
 
-        // ====================================================================
-        // --- Main Event Loop ---
-        // ====================================================================
         while (true) {
             selector.select();
-
             Set<SelectionKey> selectedKeys = selector.selectedKeys();
             Iterator<SelectionKey> iter = selectedKeys.iterator();
 
@@ -83,7 +73,6 @@ public class Main {
                 SelectionKey key = iter.next();
                 iter.remove();
 
-                // FIX #1: Check if the key is still valid before using it.
                 if (!key.isValid()) {
                     continue;
                 }
@@ -99,7 +88,6 @@ public class Main {
                             System.out.println("Accepted new client: " + clientChannel.getRemoteAddress());
                         }
                     }
-
                     if (key.isReadable()) {
                         handleReadableKey(key);
                     }
@@ -117,6 +105,7 @@ public class Main {
     private static void handleReadableKey(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
         ByteBuffer buffer = clientBuffers.get(clientChannel);
+        if (buffer == null) return;
 
         int bytesRead = clientChannel.read(buffer);
         if (bytesRead == -1) {
@@ -126,14 +115,11 @@ public class Main {
         }
 
         buffer.flip();
-
         while (buffer.hasRemaining()) {
             RESPParser parser = new RESPParser(buffer);
             List<String> commandParts = parser.parse();
 
             if (commandParts != null) {
-                // FIX #2: The offset logic is now REMOVED from Main.java.
-                // It is correctly handled inside the SetCommand handler.
                 String response = CommandHandler.handle(commandParts, clientChannel);
                 if (response != null) {
                     clientChannel.write(ByteBuffer.wrap(response.getBytes()));
@@ -173,14 +159,5 @@ public class Main {
         } catch (IOException e) {
             System.err.println("Error during client cleanup: " + e.getMessage());
         }
-    }
-
-    // This method is no longer used by the corrected Main class for offset logic,
-    // but may be used by other parts of your application.
-    private static boolean isWriteCommand(String cmd) {
-        return switch (cmd.toUpperCase()) {
-            case "SET", "DEL", "RPUSH", "LPUSH", "LSET", "LREM", "XADD", "INCR", "DECR" -> true;
-            default -> false;
-        };
     }
 }
