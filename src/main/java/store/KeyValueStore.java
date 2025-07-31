@@ -1,15 +1,14 @@
 package store;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap; // <-- Import this
 
 public class KeyValueStore {
     private static final KeyValueStore INSTANCE = new KeyValueStore();
 
-    private final Map<String, ValueWithExpiry> store = new HashMap<>();
+    // Use ConcurrentHashMap for thread-safe operations
+    private final Map<String, ValueWithExpiry> store = new ConcurrentHashMap<>(); // <-- The fix
 
     private KeyValueStore() {}
 
@@ -17,20 +16,22 @@ public class KeyValueStore {
         return INSTANCE;
     }
 
-    public void set(String key, String value,Integer time) {
+    // Use 'long' for expiry to match the SET PX command
+    public void set(String key, String value, long expiryMs) {
         Instant setTime = Instant.now();
-        store.put(key,new ValueWithExpiry(value,time,setTime));
+        store.put(key, new ValueWithExpiry(value, (int)expiryMs, setTime));
     }
 
     public String get(String key) {
-
         ValueWithExpiry pair = store.get(key);
-        if(pair==null) return null;
+        if (pair == null) {
+            return null;
+        }
 
-        if(!pair.isExpiryPresent()) return pair.getValue();
-
+        // isExpired() check will handle expiry logic.
         if (pair.isExpired()) {
-            store.remove(key);
+            // In a concurrent map, 'remove' can be called safely.
+            store.remove(key, pair); // More robust concurrent removal
             return null;
         }
         return pair.getValue();
