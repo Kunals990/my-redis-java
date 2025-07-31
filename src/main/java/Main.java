@@ -55,6 +55,7 @@ public class Main {
         System.out.println("Event-loop server started on port " + port);
 
         Selector selector = Selector.open();
+        SelectorRegistry.setSelector(selector);
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
         BlockedClientTimeoutChecker timeoutChecker = new BlockedClientTimeoutChecker();
