@@ -1,10 +1,8 @@
 import config.ServerConfig;
-import handler.BlockedClientTimeoutChecker;
 import handler.CommandHandler;
 import handler.SelectorRegistry;
-import handler.WaitClientTimeoutChecker;
 import handler.replication.*;
-import protocols.RESPParser; // Ensure this is your new ByteBuffer-based parser
+import protocols.RESPParser; // Ensure this is your ByteBuffer-based parser
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -22,7 +20,7 @@ import java.util.concurrent.Executors;
 
 public class Main {
 
-    // A map to store a buffer for each client connection. This is crucial for handling partial reads.
+    // A map to store a buffer for each client connection.
     private static final Map<SocketChannel, ByteBuffer> clientBuffers = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws IOException {
@@ -30,7 +28,7 @@ public class Main {
         String masterHost = null;
         int masterPort = -1;
 
-        // --- Argument Parsing (your existing code is correct) ---
+        // --- Argument Parsing ---
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--port") && i + 1 < args.length) {
                 port = Integer.parseInt(args[i + 1]);
@@ -53,7 +51,7 @@ public class Main {
         SelectorRegistry.setSelector(selector);
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-        // --- Role Determination and Background Threads (your existing code is correct) ---
+        // --- Role Determination and Background Threads ---
         if (masterHost != null && masterPort != -1) {
             ServerConfig.setRole("slave");
             ServerConfig.setMaster_host(masterHost);
@@ -70,7 +68,6 @@ public class Main {
         }
         new Thread(new BlockedClientTimeoutChecker()).start();
 
-
         // ====================================================================
         // --- Main Event Loop ---
         // ====================================================================
@@ -84,6 +81,7 @@ public class Main {
                 SelectionKey key = iter.next();
                 iter.remove();
 
+                // FIX #1: Check if the key is still valid before using it.
                 if (!key.isValid()) {
                     continue;
                 }
@@ -95,7 +93,7 @@ public class Main {
                         if (clientChannel != null) {
                             clientChannel.configureBlocking(false);
                             clientChannel.register(selector, SelectionKey.OP_READ);
-                            clientBuffers.put(clientChannel, ByteBuffer.allocate(1024)); // Allocate a buffer for the new client
+                            clientBuffers.put(clientChannel, ByteBuffer.allocate(1024));
                             System.out.println("Accepted new client: " + clientChannel.getRemoteAddress());
                         }
                     }
@@ -126,38 +124,24 @@ public class Main {
             return;
         }
 
-        buffer.flip(); // Prepare buffer for reading
+        buffer.flip();
 
-        // Loop to process all complete commands currently in the buffer
         while (buffer.hasRemaining()) {
             RESPParser parser = new RESPParser(buffer);
             List<String> commandParts = parser.parse();
 
             if (commandParts != null) {
-                // We successfully parsed a complete command
-                String commandName = commandParts.get(0).toUpperCase();
-
-                // Simple command size estimation for offset. A more precise method
-                // would be to have the parser report the exact bytes consumed.
-                int commandSize = 0;
-                for (String part : commandParts) {
-                    commandSize += part.getBytes().length;
-                }
-
-                if (isWriteCommand(commandName)) {
-                    ServerConfig.incrementMasterOffset(commandSize);
-                }
-
+                // FIX #2: The offset logic is now REMOVED from Main.java.
+                // It is correctly handled inside the SetCommand handler.
                 String response = CommandHandler.handle(commandParts, clientChannel);
                 if (response != null) {
                     clientChannel.write(ByteBuffer.wrap(response.getBytes()));
                 }
             } else {
-                // Incomplete command in buffer, wait for more data
                 break;
             }
         }
-        buffer.compact(); // Discard read data and prepare for next read
+        buffer.compact();
     }
 
     private static void handleWritableKey(SelectionKey key) throws IOException {
@@ -169,12 +153,10 @@ public class Main {
             while ((buffer = replica.getWriteQueue().peek()) != null) {
                 channel.write(buffer);
                 if (buffer.hasRemaining()) {
-                    // Could not write the entire buffer, wait for the next writable event
                     return;
                 }
-                replica.getWriteQueue().poll(); // Remove the fully written buffer
+                replica.getWriteQueue().poll();
             }
-            // All queued data has been written, so we are no longer interested in write events
             if (replica.getWriteQueue().isEmpty()) {
                 key.interestOps(SelectionKey.OP_READ);
             }
@@ -192,6 +174,8 @@ public class Main {
         }
     }
 
+    // This method is no longer used by the corrected Main class for offset logic,
+    // but may be used by other parts of your application.
     private static boolean isWriteCommand(String cmd) {
         return switch (cmd.toUpperCase()) {
             case "SET", "DEL", "RPUSH", "LPUSH", "LSET", "LREM", "XADD", "INCR", "DECR" -> true;
