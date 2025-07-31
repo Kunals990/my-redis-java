@@ -7,6 +7,10 @@ import java.util.concurrent.ConcurrentHashMap; // <-- Import this
 public class KeyValueStore {
     private static final KeyValueStore INSTANCE = new KeyValueStore();
 
+    static {
+        System.out.println("--- KeyValueStore Singleton Initialized at " + System.currentTimeMillis() + " ---");
+    }
+
     // Use ConcurrentHashMap for thread-safe operations
     private final Map<String, ValueWithExpiry> store = new ConcurrentHashMap<>(); // <-- The fix
 
