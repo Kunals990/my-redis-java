@@ -194,55 +194,126 @@ public class MasterLink {
 
     /** Read until CRLF and return the interior (no '+' or CRLF), or null if incomplete */
     private String readSimpleString(ByteBuffer buf) {
-        StringBuilder sb = new StringBuilder();
-        if (!buf.hasRemaining()) return null;
-        buf.get(); // consume '+'
-        while (buf.hasRemaining()) {
-            char c = (char) buf.get();
-            if (c == '\r' && buf.hasRemaining() && (char) buf.get() == '\n') {
-                return sb.toString();
-            }
-            sb.append(c);
+        buf.mark();
+        if (!buf.hasRemaining()) {
+            buf.reset();
+            return null;
         }
-        return null; // incomplete
-    }
+        if (buf.get() != '+') { // consume '+'
+            buf.reset();
+            return null; // Or throw an error, not a simple string
+        }
 
-    /** Read a $-style bulk string, return its contents or null if incomplete */
-    private String readBulkString(ByteBuffer buf) {
-        // Read length
-        if (!buf.hasRemaining() || buf.get() != '$') return null;
-        Integer len = readIntCRLF(buf);
-        if (len == null) return null;
-        if (buf.remaining() < len + 2) return null; // not all data yet
-        byte[] data = new byte[len];
-        buf.get(data);
-        // consume trailing CRLF
-        buf.get(); buf.get();
-        return new String(data, StandardCharsets.UTF_8);
-    }
-
-    /** Read an integer until CRLF (no leading ':'), or null if incomplete */
-    private Integer readIntCRLF(ByteBuffer buf) {
         StringBuilder sb = new StringBuilder();
         while (buf.hasRemaining()) {
             char c = (char) buf.get();
-            if (c == '\r' && buf.hasRemaining() && (char) buf.get() == '\n') {
-                try { return Integer.parseInt(sb.toString()); }
-                catch (NumberFormatException e) { return null; }
+            if (c == '\r') {
+                if (buf.hasRemaining() && buf.get() == '\n') {
+                    return sb.toString();
+                } else {
+                    // Incomplete CRLF, reset and wait for more data
+                    buf.reset();
+                    return null;
+                }
             }
             sb.append(c);
         }
+
+        buf.reset(); // Incomplete line
         return null;
     }
 
-    /** Skip until the next CRLF (for ints or any other line), return true if done, false if incomplete */
-    private boolean skipLine(ByteBuffer buf) {
-        while (buf.hasRemaining()) {
-            char c = (char) buf.get();
-            if (c == '\r' && buf.hasRemaining() && (char) buf.get() == '\n') {
-                return true;
+    /**
+     * Read a $-style bulk string, return its contents.
+     * Returns null if incomplete, after resetting the buffer position.
+     */
+    private String readBulkString(ByteBuffer buf) {
+        buf.mark();
+        if (!buf.hasRemaining() || buf.get() != '$') {
+            buf.reset();
+            return null;
+        }
+
+        Integer len = readIntCRLF(buf);
+        if (len == null) {
+            buf.reset();
+            return null;
+        }
+        if (len == -1) { // Null bulk string
+            return null;
+        }
+
+        if (buf.remaining() < len + 2) { // not all data + CRLF yet
+            buf.reset();
+            return null;
+        }
+
+        byte[] data = new byte[len];
+        buf.get(data);
+        // consume trailing CRLF
+        if (buf.get() != '\r' || buf.get() != '\n') {
+            // Malformed, but we can't un-read the data. For the scope of this project, we assume valid protocol.
+            // In a real-world scenario, you'd handle this protocol error more gracefully.
+        }
+        return new String(data, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Read an integer until CRLF (no leading ':' or other markers).
+     * Returns null if incomplete, after resetting the buffer position.
+     */
+    private Integer readIntCRLF(ByteBuffer buf) {
+        buf.mark();
+        StringBuilder sb = new StringBuilder();
+        boolean isNegative = false;
+
+        if (buf.hasRemaining()) {
+            char firstChar = (char) buf.get();
+            if (firstChar == '-') {
+                isNegative = true;
+            } else {
+                sb.append(firstChar);
             }
         }
+
+        while (buf.hasRemaining()) {
+            char c = (char) buf.get();
+            if (c == '\r') {
+                if (buf.hasRemaining() && buf.get() == '\n') {
+                    try {
+                        int value = Integer.parseInt(sb.toString());
+                        return isNegative ? -value : value;
+                    } catch (NumberFormatException e) {
+                        buf.reset();
+                        return null;
+                    }
+                } else {
+                    buf.reset();
+                    return null;
+                }
+            }
+            sb.append(c);
+        }
+
+        buf.reset();
+        return null;
+    }
+
+    /**
+     * Skip until the next CRLF (for ints or any other line).
+     * Returns true if a line was skipped, false if incomplete (resets buffer).
+     */
+    private boolean skipLine(ByteBuffer buf) {
+        buf.mark();
+        while (buf.hasRemaining()) {
+            if (buf.get() == '\r') {
+                if (buf.hasRemaining() && buf.get() == '\n') {
+                    return true;
+                }
+            }
+        }
+        // Incomplete line
+        buf.reset();
         return false;
     }
 }
