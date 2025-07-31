@@ -34,103 +34,94 @@ public class ReplicaConnectionHandler implements Runnable {
             OutputStream out = socket.getOutputStream();
             InputStream in = new BufferedInputStream(socket.getInputStream());
 
-            // --- Phase 1: Simple, blocking handshake ---
             performHandshake(in, out);
 
-            // --- Phase 2: Unified command processing loop ---
             RESPParser parser = new RESPParser(in);
-            while (true) {
-                Object commandObject = parser.parse();
-                if (commandObject == null) {
-                    break; // End of stream
-                }
+            startCommandReplicationLoop(out, parser);
 
-                if (!(commandObject instanceof List)) {
-                    logger.warning("Replica received non-array command: " + commandObject);
-                    continue;
-                }
-
-                @SuppressWarnings("unchecked")
-                List<String> args = (List<String>) commandObject;
-                if (args.isEmpty()) {
-                    continue;
-                }
-
-                // For ALL commands received after PSYNC, their byte size contributes to the offset.
-                this.replicationOffset += parser.getBytesReadSinceLastCommand();
-
-                String commandName = args.get(0).toUpperCase();
-
-                if ("REPLCONF".equals(commandName) && args.size() > 1 && "GETACK".equalsIgnoreCase(args.get(1))) {
-                    // Respond to GETACK with our current, now-correct offset
-                    sendAck(out);
-                } else {
-                    // For all other propagated commands (like SET, PING, etc.), just execute them.
-                    Command cmdImpl = CommandRegistry.getCommand(commandName);
-                    if (cmdImpl != null) {
-                        cmdImpl.execute(args, null);
-                    }
-                }
-            }
         } catch (Throwable t) {
             System.err.println("REPLICA: CRITICAL ERROR IN REPLICA THREAD");
             t.printStackTrace(System.err);
         }
     }
 
-    private void sendAck(OutputStream out) throws IOException {
-        String currentOffsetStr = Long.toString(this.replicationOffset);
-        List<String> ackCommand = List.of("REPLCONF", "ACK", currentOffsetStr);
-        out.write(RESPUtils.buildCommand(ackCommand));
-        out.flush();
-    }
-
     private void performHandshake(InputStream in, OutputStream out) throws IOException {
-        // PING
         out.write(RESPUtils.buildCommand(List.of("PING")));
         out.flush();
-        readSimpleString(in); // Consume PONG
+        readHandshakeResponse(in, "+PONG");
 
-        // REPLCONF Port
         out.write(RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", String.valueOf(myPort))));
         out.flush();
-        readSimpleString(in); // Consume OK
+        readHandshakeResponse(in, "+OK");
 
-        // REPLCONF Capa
         out.write(RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
         out.flush();
-        readSimpleString(in); // Consume OK
+        readHandshakeResponse(in, "+OK");
 
-        // PSYNC
         out.write(RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
         out.flush();
-        readSimpleString(in); // Consume +FULLRESYNC...
-        readRDBFile(in);      // Consume RDB file
+        readHandshakeResponse(in, "+FULLRESYNC");
+        readRDBFile(in);
     }
 
-    // Simple, dedicated readers for the handshake phase.
-    private String readSimpleString(InputStream in) throws IOException {
+    // A simple, dedicated reader for the predictable handshake responses.
+    // *** FIX IS HERE: Changed from 'void' to 'String' and added 'return response;' ***
+    private String readHandshakeResponse(InputStream in, String expectedPrefix) throws IOException {
         ByteArrayOutputStream bout = new ByteArrayOutputStream();
         int b;
-        // Read until we see a CRLF
         while ((b = in.read()) != -1) {
             bout.write(b);
             if (bout.size() >= 2 && bout.toByteArray()[bout.size() - 2] == '\r' && bout.toByteArray()[bout.size() - 1] == '\n') {
                 break;
             }
         }
-        return bout.toString(StandardCharsets.UTF_8).trim();
+        String response = bout.toString(StandardCharsets.UTF_8).trim();
+        if (!expectedPrefix.isEmpty() && !response.toUpperCase().startsWith(expectedPrefix)) {
+            throw new IOException("Handshake failed. Expected " + expectedPrefix + " but got " + response);
+        }
+        return response; // <-- ADDED THIS RETURN
     }
 
     private void readRDBFile(InputStream in) throws IOException {
         int type = in.read();
         if (type != '$') throw new IOException("Expected '$' for RDB file");
-        String lengthStr = readSimpleString(in); // Read the length line
+
+        // This line will now compile correctly
+        String lengthStr = readHandshakeResponse(in, "");
         int length = Integer.parseInt(lengthStr);
-        in.readNBytes(length); // Read and discard the RDB payload
+        in.readNBytes(length);
     }
 
-    // The RESPParser is now only used AFTER the handshake and is correct.
+    private void startCommandReplicationLoop(OutputStream out, RESPParser parser) throws IOException {
+        while (true) {
+            Object parsedCommand = parser.parse();
+            if (parsedCommand == null) break;
+
+            long bytesParsed = parser.getBytesReadSinceLastCommand();
+            if (!(parsedCommand instanceof List)) continue;
+
+            @SuppressWarnings("unchecked")
+            List<String> args = (List<String>) parsedCommand;
+            if (args.isEmpty()) continue;
+
+            String cmd = args.get(0).toUpperCase();
+
+            if ("REPLCONF".equals(cmd) && args.size() > 1 && "GETACK".equalsIgnoreCase(args.get(1))) {
+                String currentOffsetStr = Long.toString(this.replicationOffset);
+                List<String> ackCommand = List.of("REPLCONF", "ACK", currentOffsetStr);
+                out.write(RESPUtils.buildCommand(ackCommand));
+                out.flush();
+            } else {
+                Command cmdImpl = CommandRegistry.getCommand(cmd);
+                if (cmdImpl != null) {
+                    cmdImpl.execute(args, null);
+                }
+                this.replicationOffset += bytesParsed;
+            }
+        }
+    }
+
+    // The RESPParser is correct and does not need changes.
     class RESPParser {
         private final InputStream in;
         private long bytesReadSinceLastCommand = 0;
