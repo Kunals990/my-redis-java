@@ -68,20 +68,18 @@ public class MasterLink {
             readBuffer.reset();
 
             if (lead == '+') {
-                // simple string: +LINE\r\n
                 String s = readSimpleString(readBuffer);
                 if (s == null) break;
                 processResponse(key, s);
 
             } else if (lead == ':') {
-                // integer: :123\r\n — we don't really need these, skip them
                 if (!skipLine(readBuffer)) break;
 
             } else if (lead == '*') {
-                // array
                 Object arrObj = new RESPParser(readBuffer).parse();
                 if (arrObj == null) break;
                 if (arrObj instanceof List) {
+                    @SuppressWarnings("unchecked")
                     List<String> arr = (List<String>) arrObj;
                     processResponse(key, arr);
                 } else {
@@ -89,44 +87,31 @@ public class MasterLink {
                 }
 
             } else if (lead == '$') {
-                // bulk string: $LEN\r\n<data>\r\n
                 String bulk = readBulkString(readBuffer);
                 if (bulk == null) break;
                 processResponse(key, bulk);
 
             } else {
-                // unknown / incomplete
                 break;
             }
         }
 
         readBuffer.compact();
     }
+
     public void handleWrite(SelectionKey key) throws IOException {
-        // Drain queued buffers
         while (!outbound.isEmpty()) {
             ByteBuffer b = outbound.peek();
             channel.write(b);
-            if (b.hasRemaining()) {
-                // Not fully written; keep OP_WRITE set and return.
-                // The selector will notify us again when the channel is ready.
-                return;
-            }
-            // Buffer was fully written, remove it from the queue.
+            if (b.hasRemaining()) return;
             outbound.poll();
         }
-
-        // --- FIX ---
-        // The queue is empty. We are done writing for now.
-        // Switch back to only being interested in reading from the master.
         key.interestOps(SelectionKey.OP_READ);
     }
 
     private void processResponse(SelectionKey key, Object resp) throws IOException {
-        // Handshake state transitions, only enqueue the *one* next frame.
         switch (state) {
             case PING:
-                // Expecting +PONG
                 if (resp instanceof String && "PONG".equals(resp)) {
                     state = HandshakeState.REPLCONF_PORT;
                     enqueue(key, RESPUtils.buildCommand(
@@ -135,7 +120,6 @@ public class MasterLink {
                 break;
 
             case REPLCONF_PORT:
-                // Expecting +OK to port
                 if (resp instanceof String && "OK".equals(resp)) {
                     state = HandshakeState.REPLCONF_CAPA;
                     enqueue(key, RESPUtils.buildCommand(
@@ -144,7 +128,6 @@ public class MasterLink {
                 break;
 
             case REPLCONF_CAPA:
-                // Expecting +OK to capa
                 if (resp instanceof String && "OK".equals(resp)) {
                     state = HandshakeState.PSYNC_FULLRESYNC;
                     enqueue(key, RESPUtils.buildCommand(
@@ -153,34 +136,36 @@ public class MasterLink {
                 break;
 
             case PSYNC_FULLRESYNC:
-                // Expecting +FULLRESYNC <runid> <offset>
-                if (resp instanceof String && ((String)resp).startsWith("FULLRESYNC")) {
+                if (resp instanceof String && ((String) resp).startsWith("FULLRESYNC")) {
+                    // capture the master's offset so we can ACK correctly
+                    String[] parts = ((String) resp).split(" ");
+                    replicationOffset = Long.parseLong(parts[2]);
                     state = HandshakeState.PSYNC_RDB;
-                    // The tester will now send the bulk-RDB; we just wait for it
+                    // Now wait for the bulk-RDB payload
                 }
                 break;
 
             case PSYNC_RDB:
-                // After reading the $<len>\r\n<data>\r\n, parser returns the data as a byte[] or String.
-                // At that point we transition ONLINE.
+                // After consuming the RDB payload, go online
                 state = HandshakeState.ONLINE;
                 System.out.println("Replica is now ONLINE.");
+                // send initial ACK at the full-resync offset
+                byte[] initialAck = RESPUtils.buildCommand(
+                        List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
+                System.out.println("[slave] → QUEUEING initial “" + new String(initialAck, StandardCharsets.UTF_8).trim() + "”");
+                enqueue(key, initialAck);
                 break;
 
             case ONLINE:
-                // Handle GETACK or commands
                 if (resp instanceof List) {
                     @SuppressWarnings("unchecked")
                     List<String> args = (List<String>) resp;
                     String cmd = args.get(0).toUpperCase();
-                    if ("REPLCONF".equalsIgnoreCase(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
-                        // --- FIX START ---
-                        // DO NOT write directly. Use the non-blocking queue.
+                    if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
                         byte[] ackCmd = RESPUtils.buildCommand(
                                 List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
                         System.out.println("[slave] → QUEUEING “" + new String(ackCmd, StandardCharsets.UTF_8).trim() + "”");
                         enqueue(key, ackCmd);
-                        // --- FIX END ---
                     } else {
                         Command c = CommandRegistry.getCommand(cmd);
                         if (c != null) {
@@ -192,122 +177,57 @@ public class MasterLink {
         }
     }
 
-    /** Read until CRLF and return the interior (no '+' or CRLF), or null if incomplete */
     private String readSimpleString(ByteBuffer buf) {
         buf.mark();
-        if (!buf.hasRemaining()) {
-            buf.reset();
-            return null;
-        }
-        if (buf.get() != '+') { // consume '+'
-            buf.reset();
-            return null; // Or throw an error, not a simple string
-        }
-
+        if (!buf.hasRemaining()) { buf.reset(); return null; }
+        if (buf.get() != '+') { buf.reset(); return null; }
         StringBuilder sb = new StringBuilder();
         while (buf.hasRemaining()) {
             char c = (char) buf.get();
             if (c == '\r') {
-                if (buf.hasRemaining() && buf.get() == '\n') {
-                    return sb.toString();
-                } else {
-                    // Incomplete CRLF, reset and wait for more data
-                    buf.reset();
-                    return null;
-                }
+                if (buf.hasRemaining() && buf.get() == '\n') return sb.toString();
+                buf.reset(); return null;
             }
             sb.append(c);
         }
-
-        buf.reset(); // Incomplete line
-        return null;
+        buf.reset(); return null;
     }
 
-    /**
-     * Read a $-style bulk string, return its contents.
-     * Returns null if incomplete, after resetting the buffer position.
-     */
     private String readBulkString(ByteBuffer buf) {
         buf.mark();
-        // Check for '$'
-        if (!buf.hasRemaining() || buf.get() != '$') {
-            buf.reset();
-            return null;
-        }
-
-        // Read the length
+        if (!buf.hasRemaining() || buf.get() != '$') { buf.reset(); return null; }
         Integer len = readIntCRLF(buf);
-        if (len == null) {
-            buf.reset();
-            return null;
-        }
-        if (len == -1) { // This handles RESP's "Null Bulk String" ($-1\r\n)
-            return null;
-        }
-
-        // Check if the full data payload plus the trailing CRLF are in the buffer
-        if (buf.remaining() < len + 2) {
-            buf.reset();
-            return null;
-        }
-
-        // Read the data and the trailing CRLF
-        byte[] data = new byte[len];
-        buf.get(data);
-        buf.get(); // consume \r
-        buf.get(); // consume \n
-
+        if (len == null) { buf.reset(); return null; }
+        if (len == -1) return null;
+        if (buf.remaining() < len + 2) { buf.reset(); return null; }
+        byte[] data = new byte[len]; buf.get(data);
+        buf.get(); buf.get(); // consume CRLF
         return new String(data, StandardCharsets.UTF_8);
     }
 
-    /**
-     * Read an integer until CRLF. This is a general helper.
-     * Returns null if incomplete, after resetting the buffer position.
-     */
     private Integer readIntCRLF(ByteBuffer buf) {
         buf.mark();
         StringBuilder sb = new StringBuilder();
         while (buf.hasRemaining()) {
             char c = (char) buf.get();
             if (c == '\r') {
-                if (!buf.hasRemaining()) {
-                    // Incomplete CRLF
-                    buf.reset();
-                    return null;
-                }
-                // Consume the \n
-                buf.get();
-                // We found the end of the line, parse the integer
-                try {
-                    return Integer.parseInt(sb.toString());
-                } catch (NumberFormatException e) {
-                    // Protocol error
-                    return null;
-                }
+                if (!buf.hasRemaining()) { buf.reset(); return null; }
+                buf.get(); // consume '\n'
+                try { return Integer.parseInt(sb.toString()); }
+                catch (NumberFormatException e) { return null; }
             }
             sb.append(c);
         }
-
-        // No CRLF found, so the line is incomplete
-        buf.reset();
-        return null;
+        buf.reset(); return null;
     }
 
-    /**
-     * Skip until the next CRLF (for ints or any other line).
-     * Returns true if a line was skipped, false if incomplete (resets buffer).
-     */
     private boolean skipLine(ByteBuffer buf) {
         buf.mark();
         while (buf.hasRemaining()) {
             if (buf.get() == '\r') {
-                if (buf.hasRemaining() && buf.get() == '\n') {
-                    return true;
-                }
+                if (buf.hasRemaining() && buf.get() == '\n') return true;
             }
         }
-        // Incomplete line
-        buf.reset();
-        return false;
+        buf.reset(); return false;
     }
 }
