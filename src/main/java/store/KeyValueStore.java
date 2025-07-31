@@ -29,7 +29,6 @@ public class KeyValueStore {
         }
 
         if (pair.isExpired()) {
-            // In a concurrent map, 'remove' can be called safely.
             store.remove(key, pair); // More robust concurrent removal
             return null;
         }
