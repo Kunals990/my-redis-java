@@ -122,8 +122,9 @@ public class Main {
             cleanupConnection(key);
             return;
         }
-        RESPParser parser = new RESPParser(buffer);
+
         buffer.flip();
+        RESPParser parser = new RESPParser(buffer);
         while (buffer.hasRemaining()) {
             Object parsed = parser.parse();
             if (parsed instanceof List) {
@@ -134,7 +135,8 @@ public class Main {
                     clientChannel.write(ByteBuffer.wrap(response.getBytes()));
                 }
             } else {
-                // Either incomplete or a simple string/integer—stop parsing
+                // either null (incomplete) or a non-array frame (e.g. simple string/int),
+                // so we stop parsing client commands here
                 break;
             }
         }
