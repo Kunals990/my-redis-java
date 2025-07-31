@@ -112,10 +112,17 @@ public class ReplicaConnectionHandler implements Runnable {
         int len = Integer.parseInt(lenLine);
         System.out.println("REPLICA PARSED RDB LENGTH: " + len);
 
-        // Correctly read exactly 'len' bytes for the RDB payload
+        // This is the corrected, robust way to read exactly 'len' bytes
         byte[] rdbBuffer = new byte[len];
-        int bytesRead = in.readNBytes(rdbBuffer, 0, len);
-        System.out.println("REPLICA ATTEMPTED TO READ " + len + " RDB BYTES, ACTUALLY READ: " + bytesRead);
+        int totalBytesRead = 0;
+        while (totalBytesRead < len) {
+            int bytesRead = in.read(rdbBuffer, totalBytesRead, len - totalBytesRead);
+            if (bytesRead == -1) {
+                throw new IOException("Unexpected end of stream while reading RDB payload.");
+            }
+            totalBytesRead += bytesRead;
+        }
+        System.out.println("REPLICA ATTEMPTED TO READ " + len + " RDB BYTES, ACTUALLY READ: " + totalBytesRead);
 
         // The handshake is now complete. The stream is correctly positioned.
     }
