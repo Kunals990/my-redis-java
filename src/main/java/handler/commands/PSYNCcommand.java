@@ -15,8 +15,10 @@ public class PSYNCcommand implements Command {
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) throws IOException {
         String replicationId = ServerConfig.getMaster_replid();
-        String fullResync = "+FULLRESYNC "+replicationId+" 0\r\n";
+        String fullResync = "+FULLRESYNC " + replicationId + " 0\r\n";
 
+        // Log and write FULLRESYNC
+        System.out.println("MASTER SENDING: " + fullResync.replace("\r\n", "\\r\\n"));
         clientChannel.write(ByteBuffer.wrap(fullResync.getBytes()));
 
         sendEmptyRDB(clientChannel);
@@ -24,12 +26,17 @@ public class PSYNCcommand implements Command {
         return null;
     }
 
+
     private void sendEmptyRDB(SocketChannel clientChannel) throws IOException {
         byte[] rdbBytes = hexToBytes(RDB_HEX);
-
         String header = "$" + rdbBytes.length + "\r\n";
+
+        // Log and write the RDB header
+        System.out.println("MASTER SENDING HEADER: " + header.replace("\r\n", "\\r\\n"));
         clientChannel.write(ByteBuffer.wrap(header.getBytes()));
 
+        // Log and write the RDB content
+        System.out.println("MASTER SENDING RDB BYTES of length: " + rdbBytes.length);
         clientChannel.write(ByteBuffer.wrap(rdbBytes));
     }
 

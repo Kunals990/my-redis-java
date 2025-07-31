@@ -89,33 +89,30 @@ public class ReplicaConnectionHandler implements Runnable {
     }
 
     private void completeHandShake4(OutputStream out, InputStream in) throws IOException {
-        // Send PSYNC ? -1
-        List<String> req = List.of("PSYNC", "?", "-1");
-        out.write(RESPUtils.buildCommand(req));
-        out.flush();
+        // ... (code to send PSYNC)
 
-        // Read +FULLRESYNC <REPL_ID> <OFFSET>
+        // Log what is read for the FULLRESYNC line
         String fullResyncResponse = readLine(in);
+        System.out.println("REPLICA READ LINE: " + fullResyncResponse);
         if (!fullResyncResponse.startsWith("+FULLRESYNC")) {
-            throw new IOException("Handshake4 failed, expected +FULLRESYNC, got: " + fullResyncResponse);
+            // ...
         }
 
-        // Read the RDB file header: $<length>\r\n
+        // Log the RDB header read
         int dollar = in.read();
-        if (dollar != '$') {
-            throw new IOException("Expected '$' for RDB bulk, got: " + (char)dollar);
-        }
+        System.out.println("REPLICA READ CHAR: " + (char)dollar);
         String lenLine = readLine(in);
+        System.out.println("REPLICA READ LINE: " + lenLine);
         int len = Integer.parseInt(lenLine);
+        System.out.println("REPLICA PARSED RDB LENGTH: " + len);
 
-        // Read and discard the RDB payload bytes.
-        // The RDB file itself is terminated by a CRLF, but readNBytes does not consume it.
-        // However, since we are moving to a line-based RESPParser next, this is fine.
-        // For robustness, you could read len + 2 to consume the trailing CRLF, but it's not strictly necessary here.
-        in.readNBytes(len);
-        logger.info("Drained RDB payload of " + len + " bytes");
+        // This is the most important part.
+        // Let's read the RDB bytes and log how many we actually got.
+        byte[] rdbBuffer = new byte[len];
+        int bytesRead = in.read(rdbBuffer, 0, len);
+        System.out.println("REPLICA ATTEMPTED TO READ " + len + " RDB BYTES, ACTUALLY READ: " + bytesRead);
 
-        // The handshake is now complete. The command replication loop will handle subsequent commands.
+        // The handshake is now complete.
     }
 
     private String readLine(InputStream in) throws IOException {
