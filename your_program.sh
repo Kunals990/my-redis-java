@@ -7,13 +7,14 @@
 # Learn more: https://codecrafters.io/program-interface
 
 set -e # Exit early if any commands fail
+
 # Copied from .codecrafters/compile.sh
 #
 # - Edit this to change how your program compiles locally
 # - Edit .codecrafters/compile.sh to change how your program compiles remotely
 (
   cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
-  mvn -q -B clean package -Ddir=/tmp/codecrafters-build-redis-java
+  mvn -q -B package -Ddir=/tmp/codecrafters-build-redis-java
 )
 
 # Copied from .codecrafters/run.sh
