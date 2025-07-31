@@ -20,7 +20,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 
-public class PrevMainn {
+public class Main1 {
 
     private static final Map<SocketChannel, ByteBuffer> clientBuffers = new ConcurrentHashMap<>();
 

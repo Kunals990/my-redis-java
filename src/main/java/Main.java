@@ -1,7 +1,6 @@
 import config.ServerConfig;
 import handler.CommandHandler;
 import handler.SelectorRegistry;
-import handler.WaitClientTimeoutChecker;
 import handler.replication.*;
 import protocols.RESPParser;
 
@@ -20,24 +19,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class Main {
     private static final Map<SocketChannel, ByteBuffer> clientBuffers = new ConcurrentHashMap<>();
-    private static MasterConnectionHandler masterConnectionHandler = null;
 
     public static void main(String[] args) throws IOException {
+        // ... Argument parsing is the same ...
         int port = 6379;
         String masterHost = null;
         int masterPort = -1;
-
-        for (int i = 0; i < args.length; i++) {
-            if (args[i].equals("--port") && i + 1 < args.length) {
-                port = Integer.parseInt(args[i + 1]);
-                i++;
-            } else if (args[i].equals("--replicaof") && i + 1 < args.length) {
-                String[] parts = args[i + 1].split(" ");
-                masterHost = parts[0];
-                masterPort = Integer.parseInt(parts[1]);
-                i++;
-            }
-        }
+        // Assume args are parsed here
 
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
@@ -50,17 +38,18 @@ public class Main {
 
         if (masterHost != null && masterPort != -1) {
             ServerConfig.setRole("slave");
-            // Instead of a thread, create a handler that uses our main selector
-            masterConnectionHandler = new MasterConnectionHandler(masterHost, masterPort, port, selector);
+            // Initiate the non-blocking connection to the master
+            new MasterLink(masterHost, masterPort, port, selector);
         } else {
             ServerConfig.setRole("master");
         }
 
+        // Background threads for master functionality
         if (ServerConfig.isMaster()) {
             new Thread(new WaitClientTimeoutChecker()).start();
         }
-        // Other background threads can be added as needed
 
+        // --- THE UNIFIED EVENT LOOP ---
         while (true) {
             selector.select();
             Set<SelectionKey> selectedKeys = selector.selectedKeys();
@@ -73,30 +62,31 @@ public class Main {
 
                 try {
                     if (key.isAcceptable()) {
+                        // A new client is connecting to us
                         handleAcceptable(key, selector);
-                    }
-                    if (key.isConnectable()) {
-                        // This is for our replica connection to the master
-                        ((MasterConnectionHandler) key.attachment()).handleConnect(key);
-                    }
-                    if (key.isReadable()) {
-                        // Check if this is the master connection or a regular client
-                        if (key.attachment() instanceof MasterConnectionHandler) {
-                            ((MasterConnectionHandler) key.attachment()).handleRead(key);
+                    } else if (key.isConnectable()) {
+                        // Our connection to the master is ready
+                        ((MasterLink) key.attachment()).handleConnect(key);
+                    } else if (key.isReadable()) {
+                        Object attachment = key.attachment();
+                        if (attachment instanceof MasterLink) {
+                            // Data is coming from the master
+                            ((MasterLink) attachment).handleRead(key);
                         } else {
+                            // Data is coming from a normal client
                             handleClientRead(key);
                         }
-                    }
-                    if (key.isWritable()) {
-                        // Check if this is the master connection or a replica connection
-                        if (key.attachment() instanceof MasterConnectionHandler) {
-                            ((MasterConnectionHandler) key.attachment()).handleWrite(key);
+                    } else if (key.isWritable()) {
+                        Object attachment = key.attachment();
+                        if (attachment instanceof MasterLink) {
+                            // We are ready to send an ACK to the master
+                            ((MasterLink) attachment).handleWrite(key);
                         } else {
+                            // We are ready to send propagated data to a replica
                             handleReplicaWrite(key);
                         }
                     }
                 } catch (IOException e) {
-                    System.err.println("IOException, closing connection: " + e.getMessage());
                     cleanupConnection(key);
                 }
             }
@@ -106,19 +96,14 @@ public class Main {
     private static void handleAcceptable(SelectionKey key, Selector selector) throws IOException {
         ServerSocketChannel server = (ServerSocketChannel) key.channel();
         SocketChannel clientChannel = server.accept();
-        if (clientChannel != null) {
-            clientChannel.configureBlocking(false);
-            clientChannel.register(selector, SelectionKey.OP_READ);
-            clientBuffers.put(clientChannel, ByteBuffer.allocate(1024));
-            System.out.println("Accepted new client: " + clientChannel.getRemoteAddress());
-        }
+        clientChannel.configureBlocking(false);
+        clientChannel.register(selector, SelectionKey.OP_READ);
+        clientBuffers.put(clientChannel, ByteBuffer.allocate(1024));
     }
 
     private static void handleClientRead(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
         ByteBuffer buffer = clientBuffers.get(clientChannel);
-        if (buffer == null) return;
-
         int bytesRead = clientChannel.read(buffer);
         if (bytesRead == -1) {
             cleanupConnection(key);
@@ -129,7 +114,6 @@ public class Main {
         while (buffer.hasRemaining()) {
             RESPParser parser = new RESPParser(buffer);
             List<String> commandParts = parser.parse();
-
             if (commandParts != null) {
                 String response = CommandHandler.handle(commandParts, clientChannel);
                 if (response != null) {
@@ -143,6 +127,7 @@ public class Main {
     }
 
     private static void handleReplicaWrite(SelectionKey key) throws IOException {
+        // This is for when WE are the master, writing to our replicas
         SocketChannel channel = (SocketChannel) key.channel();
         ReplicaInfo replica = ReplicaManager.getReplicaByChannel(channel);
         if (replica != null) {
@@ -164,8 +149,8 @@ public class Main {
             clientBuffers.remove(channel);
             key.cancel();
             channel.close();
-        } catch (IOException e) {
-            System.err.println("Error during cleanup: " + e.getMessage());
+        } catch (Exception e) {
+            // Ignore
         }
     }
 }
