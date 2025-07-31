@@ -109,7 +109,7 @@ public class ReplicaConnectionHandler implements Runnable {
         int len = Integer.parseInt(lenLine);
 
         // read and discard the exact RDB payload + its trailing CRLF
-        in.readNBytes(len );
+        in.readNBytes(len +2);
         logger.info("Drained RDB payload of " + len + " bytes");
     }
 
