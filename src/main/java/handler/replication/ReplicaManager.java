@@ -10,7 +10,7 @@ public class ReplicaManager {
 
     public static void addReplica(SocketChannel channel, int listeningPort) {
         replicas.add(new ReplicaInfo(channel, listeningPort));
-        System.out.println("[ReplicaManager] Added replica on port: " + listeningPort);
+//        System.out.println("[ReplicaManager] Added replica on port: " + listeningPort);
     }
 
     public static List<ReplicaInfo> getReplicas() {

@@ -120,11 +120,11 @@ public class Main {
                     buffer.flip();
                     String input = new String(buffer.array(), 0, buffer.limit());
                     int respBytes = input.getBytes(StandardCharsets.UTF_8).length;
-                    System.out.println("Received: " + input);
+//                    System.out.println("Received: " + input);
 
                     try{
                         List<String> commandParts = RESPParser.parse(input);
-                        System.out.println("Parsed command: "+commandParts);
+//                        System.out.println("Parsed command: "+commandParts);
                         String commandName = commandParts.get(0).toUpperCase();
                         if (isWriteCommand(commandName)) {
                             ServerConfig.setMaster_offset(respBytes);
