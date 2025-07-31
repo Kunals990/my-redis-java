@@ -1,35 +1,53 @@
 package handler.replication;
+// In handler/replication/GetAckBroadcaster.java
+
+import handler.SelectorRegistry; // <-- Import this
+import handler.replication.ReplicaInfo;
+import handler.replication.ReplicaManager;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey; // <-- Import this
+import java.nio.channels.Selector;   // <-- Import this
 import java.nio.channels.SocketChannel;
 import java.util.List;
-
-// In handler/replication/GetAckBroadcaster.java
 
 public class GetAckBroadcaster implements Runnable {
     @Override
     public void run() {
+        // Get the main selector once.
+        Selector selector = SelectorRegistry.getSelector();
+
         while (true) {
             try {
+                Thread.sleep(200); // Wait first to give handshakes time
+
                 List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
-                if (!replicas.isEmpty()) {
-                    String getAck = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n";
-                    for (ReplicaInfo replica : replicas) {
-                        // ONLY send GETACK to replicas that are fully online
-                        if (replica.getState() == ReplicaInfo.ReplicaState.ONLINE) {
-                            try {
-                                replica.getChannel().write(ByteBuffer.wrap(getAck.getBytes()));
-                            } catch (IOException e) {
-                                System.err.println("Failed to send GETACK to " + replica.getListeningPort() + ", removing replica.");
-                                ReplicaManager.removeReplica(replica.getChannel());
-                            }
+                if (replicas.isEmpty()) {
+                    continue;
+                }
+
+                String getAck = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n";
+                byte[] getAckBytes = getAck.getBytes();
+
+                for (ReplicaInfo replica : replicas) {
+                    if (replica.getState() == ReplicaInfo.ReplicaState.ONLINE) {
+                        SocketChannel replicaChannel = replica.getChannel();
+
+                        // 1. Add the command to the queue
+                        replica.getWriteQueue().add(ByteBuffer.wrap(getAckBytes));
+
+                        // 2. Signal the main selector that this channel has data to write
+                        SelectionKey key = replicaChannel.keyFor(selector);
+                        if (key != null && key.isValid()) {
+                            key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                            // Wake up the selector immediately if it's blocking
+                            selector.wakeup();
                         }
                     }
                 }
-                Thread.sleep(200); // Increased sleep time slightly
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // Restore interrupted status
+                Thread.currentThread().interrupt();
                 e.printStackTrace();
                 break;
             }
