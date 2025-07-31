@@ -4,37 +4,82 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class RESPParser {
-    private static long bytesRead = 0;
+    private final String input;
+    private int pos = 0;
+
+    public RESPParser(String input) {
+        this.input = input;
+    }
+
     public static List<String> parse(String input) {
-        bytesRead = 0;
-        List<String> args = new ArrayList<>();
-
-        if (!input.startsWith("*")) {
-            throw new IllegalArgumentException("Not a valid RESP array");
+        if (input == null || input.isEmpty()) {
+            return new ArrayList<>();
         }
+        return new RESPParser(input).parse();
+    }
 
-        String[] lines = input.split("\r\n");
-
-        int i = 0;
-        if (!lines[i].startsWith("*")) {
-            throw new IllegalArgumentException("Expected array header");
+    private List<String> parse() {
+        char type = readChar();
+        if (type == '*') {
+            return parseArray();
+        } else {
+            // Simple string command support for things like `redis-cli PING`
+            return parseSimpleCommand();
         }
+    }
 
-        int numArgs = Integer.parseInt(lines[i++].substring(1));
+    private List<String> parseSimpleCommand() {
+        // Reset and read the whole line as a single command
+        pos = 0;
+        String line = readLine();
+        return new ArrayList<>(List.of(line.split(" ")));
+    }
 
-        while (i < lines.length && args.size() < numArgs) {
-            if (!lines[i].startsWith("$")) {
-                throw new IllegalArgumentException("Expected bulk string");
+    private List<String> parseArray() {
+        int numArgs = readIntLine();
+        List<String> args = new ArrayList<>(numArgs);
+        for (int i = 0; i < numArgs; i++) {
+            char type = readChar();
+            if (type != '$') {
+                throw new IllegalStateException("Expected bulk string for array element, got " + type);
             }
-
-            int length = Integer.parseInt(lines[i++].substring(1));
-            if (i >= lines.length || lines[i].length() != length) {
-                throw new IllegalArgumentException("Invalid bulk string length");
-            }
-
-            args.add(lines[i++]);
+            args.add(parseBulkString());
         }
-
         return args;
+    }
+
+    private String parseBulkString() {
+        int length = readIntLine();
+        if (length == -1) {
+            return null;
+        }
+        String bulkString = input.substring(pos, pos + length);
+        pos += length;
+        // Skip trailing CRLF
+        if (pos <= input.length() - 2 && input.charAt(pos) == '\r' && input.charAt(pos + 1) == '\n') {
+            pos += 2;
+        }
+        return bulkString;
+    }
+
+    private char readChar() {
+        return input.charAt(pos++);
+    }
+
+    private String readLine() {
+        int start = pos;
+        while (pos < input.length() && input.charAt(pos) != '\r') {
+            pos++;
+        }
+        String line = input.substring(start, pos);
+        // Skip CRLF
+        if (pos <= input.length() - 2 && input.charAt(pos) == '\r' && input.charAt(pos + 1) == '\n') {
+            pos += 2;
+        }
+        return line;
+    }
+
+    private int readIntLine() {
+        return Integer.parseInt(readLine());
     }
 }
