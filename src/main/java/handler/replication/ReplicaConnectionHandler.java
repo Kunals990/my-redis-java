@@ -36,7 +36,7 @@ public class ReplicaConnectionHandler implements Runnable {
             InputStream in = new BufferedInputStream(socket.getInputStream());
             RESPParser parser = new RESPParser(in);
 
-            // --- Robust Handshake Logic ---
+            // --- Robust Handshake Logic with Validation ---
 
             // 1. PING
             out.write(RESPUtils.buildCommand(List.of("PING")));
@@ -65,18 +65,18 @@ public class ReplicaConnectionHandler implements Runnable {
             // 4. PSYNC
             out.write(RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
             out.flush();
-            Object fullResyncResponse = parser.parse(); // Expect "+FULLRESYNC..."
-            if (!fullResyncResponse.toString().toUpperCase().startsWith("+FULLRESYNC")) {
+            Object fullResyncResponse = parser.parse();
+            if (!(fullResyncResponse instanceof String) || !((String) fullResyncResponse).toUpperCase().startsWith("+FULLRESYNC")) {
                 throw new IOException("Handshake failed: Did not receive FULLRESYNC. Got: " + fullResyncResponse);
             }
-            parser.parse(); // Consume the RDB file bytes and ignore them for now.
+            parser.parse(); // Consume the RDB file bytes and ignore them.
 
             // --- Handshake complete, stream is now synchronized ---
             startCommandReplicationLoop(out, parser);
 
         } catch (Throwable t) {
-            System.out.println("REPLICA: CRITICAL ERROR IN REPLICA THREAD");
-            t.printStackTrace(System.out);
+            System.err.println("REPLICA: CRITICAL ERROR IN REPLICA THREAD");
+            t.printStackTrace(System.err);
         }
     }
 
@@ -86,7 +86,6 @@ public class ReplicaConnectionHandler implements Runnable {
             if (parsedCommand == null) break;
 
             long bytesParsed = parser.getBytesReadSinceLastCommand();
-
             if (!(parsedCommand instanceof List)) continue;
 
             @SuppressWarnings("unchecked")
@@ -95,7 +94,7 @@ public class ReplicaConnectionHandler implements Runnable {
 
             String cmd = args.get(0).toUpperCase();
 
-            if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
+            if ("REPLCONF".equals(cmd) && args.size() > 1 && "GETACK".equalsIgnoreCase(args.get(1))) {
                 String currentOffsetStr = Long.toString(this.replicationOffset);
                 String ack = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"
                         + currentOffsetStr.length() + "\r\n" + currentOffsetStr + "\r\n";
@@ -111,8 +110,7 @@ public class ReplicaConnectionHandler implements Runnable {
         }
     }
 
-    // The RESPParser inner class remains the same as the one I provided before.
-    // It is correct.
+    // The RESPParser inner class is correct and does not need changes.
     class RESPParser {
         private final InputStream in;
         private long bytesReadSinceLastCommand = 0;
@@ -131,7 +129,7 @@ public class ReplicaConnectionHandler implements Runnable {
             bytesReadSinceLastCommand++;
 
             return switch ((char) type) {
-                case '+' -> "+" + parseSimpleString(); // Return with prefix for easier checking
+                case '+' -> "+" + readLine();
                 case '*' -> parseArray();
                 case '$' -> {
                     int len = readInt();
@@ -144,10 +142,6 @@ public class ReplicaConnectionHandler implements Runnable {
                 }
                 default -> throw new IOException("Unknown RESP type: " + (char) type);
             };
-        }
-
-        private String parseSimpleString() throws IOException {
-            return readLine();
         }
 
         private List<String> parseArray() throws IOException {
@@ -171,7 +165,7 @@ public class ReplicaConnectionHandler implements Runnable {
             while ((b = in.read()) != -1) {
                 bytesReadSinceLastCommand++;
                 if (b == '\r') {
-                    in.read(); // consume LF
+                    in.read();
                     bytesReadSinceLastCommand++;
                     break;
                 }
@@ -182,7 +176,7 @@ public class ReplicaConnectionHandler implements Runnable {
 
         private int readInt() throws IOException {
             String line = readLine();
-            if (line.isEmpty()) return -1;
+            if (line == null || line.isEmpty()) return -1;
             return Integer.parseInt(line);
         }
     }
