@@ -98,10 +98,11 @@ public class ReplicaConnectionHandler implements Runnable {
             @SuppressWarnings("unchecked")
             List<String> args = (List<String>) parsedCommand;
             if (args.isEmpty()) continue;
-
+            System.out.println("in 1");
             String cmd = args.get(0).toUpperCase();
 
             if ("REPLCONF".equals(cmd) && args.size() > 1 && "GETACK".equalsIgnoreCase(args.get(1))) {
+                System.out.println("in 2");
                 // Respond with the offset *before* this GETACK command was processed.
                 String offsetBeforeThisCommand = Long.toString(this.replicationOffset);
                 List<String> ackCommand = List.of("REPLCONF", "ACK", offsetBeforeThisCommand);
@@ -109,7 +110,9 @@ public class ReplicaConnectionHandler implements Runnable {
                 out.flush();
             } else {
                 // For propagated write commands, just execute them.
+                System.out.println("above command");
                 Command cmdImpl = CommandRegistry.getCommand(cmd);
+                System.out.println("Command is "+cmdImpl);
                 if (cmdImpl != null) {
                     cmdImpl.execute(args, null);
                 }
