@@ -16,31 +16,31 @@ import java.util.concurrent.Executors;
 public class Main {
     public static void main(String[] args) throws IOException {
         int port = 6379;
+        String masterHost = null;
+        int masterPort = -1;
 
-        for(int i=0;i<args.length-1;i++){
-            if(args[i].equals("--port")){
-                try {
-                    port=Integer.parseInt(args[i+1]);
-                } catch (NumberFormatException e) {
-                    System.err.println("Invalid port number: "+args[i+1]);
-                    System.exit(1);
-                }
-
-            }
-
-            if(args[i].equals("--replicaof")){
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--port") && i + 1 < args.length) {
+                port = Integer.parseInt(args[i + 1]);
+                i++; // Skip the value
+            } else if (args[i].equals("--replicaof") && i + 1 < args.length) {
                 String[] parts = args[i + 1].split(" ");
-                String masterHost = parts[0];
-                int masterPort = Integer.parseInt(parts[1]);
-                ServerConfig.setMaster_host(masterHost);
-                ServerConfig.setMaster_port(String.valueOf(masterPort));
-                ServerConfig.setRole("slave");
-
-                ReplicaConnectionHandler replicaHandler = new ReplicaConnectionHandler(masterHost,masterPort,port);
-                Executors.newSingleThreadExecutor().submit(replicaHandler);
+                masterHost = parts[0];
+                masterPort = Integer.parseInt(parts[1]);
+                i++; // Skip the value
             }
         }
 
+        if (masterHost != null && masterPort != -1) {
+            ServerConfig.setRole("slave");
+            ServerConfig.setMaster_host(masterHost);
+            ServerConfig.setMaster_port(String.valueOf(masterPort));
+
+            ReplicaConnectionHandler replicaHandler = new ReplicaConnectionHandler(masterHost, masterPort, port);
+            Executors.newSingleThreadExecutor().submit(replicaHandler);
+        } else {
+            ServerConfig.setRole("master");
+        }
 
         if (ServerConfig.isMaster()) {
             Thread getAckThread = new Thread(new GetAckBroadcaster());
@@ -51,15 +51,12 @@ public class Main {
             waitClientTimeout.start();
         }
 
-        // Step 1: Setup non-blocking server socket channel
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
         serverChannel.socket().bind(new InetSocketAddress(port));
         System.out.println("Event-loop server started on port " + port);
 
-        // Step 2: Register server socket with selector for accept events
         Selector selector = Selector.open();
-        SelectorRegistry.setSelector(selector);
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
         BlockedClientTimeoutChecker timeoutChecker = new BlockedClientTimeoutChecker();
