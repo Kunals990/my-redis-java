@@ -12,6 +12,8 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 
 public class MasterLink {
@@ -19,6 +21,8 @@ public class MasterLink {
     private final Selector selector;
     private final ByteBuffer readBuffer = ByteBuffer.allocate(1024);
     private long replicationOffset = 0;
+
+    private final Deque<ByteBuffer> outbound = new ArrayDeque<>();
 
     private enum HandshakeState { PING, REPLCONF_PORT, REPLCONF_CAPA, PSYNC_FULLRESYNC, PSYNC_RDB, ONLINE }
     private HandshakeState state = HandshakeState.PING;
@@ -31,12 +35,19 @@ public class MasterLink {
         this.channel.connect(new InetSocketAddress(host, port));
     }
 
+    private void enqueue(SelectionKey key, byte[] data) {
+        outbound.add(ByteBuffer.wrap(data));
+        key.interestOps(SelectionKey.OP_WRITE);
+    }
+
     public void handleConnect(SelectionKey key) throws IOException {
         if (channel.isConnectionPending()) {
             channel.finishConnect();
         }
+//        System.out.println("Replica connected to master. Starting handshake.");
+//        send(key, RESPUtils.buildCommand(List.of("PING")));
         System.out.println("Replica connected to master. Starting handshake.");
-        send(key, RESPUtils.buildCommand(List.of("PING")));
+        enqueue(key, RESPUtils.buildCommand(List.of("PING")));
     }
 
     public void handleRead(SelectionKey key) throws IOException {
@@ -59,9 +70,25 @@ public class MasterLink {
 
     public void handleWrite(SelectionKey key) throws IOException {
         // This is now only for ACKs
-        String ack = Long.toString(this.replicationOffset);
-        byte[] ackCommand = RESPUtils.buildCommand(List.of("REPLCONF", "ACK", ack));
-        channel.write(ByteBuffer.wrap(ackCommand));
+//        String ack = Long.toString(this.replicationOffset);
+//        byte[] ackCommand = RESPUtils.buildCommand(List.of("REPLCONF", "ACK", ack));
+//        channel.write(ByteBuffer.wrap(ackCommand));
+//        key.interestOps(SelectionKey.OP_READ);
+
+        while (!outbound.isEmpty()) {
+            ByteBuffer buf = outbound.peek();
+            channel.write(buf);
+            if (buf.hasRemaining()) {
+                return;}
+            outbound.poll();
+        }
+
+        if (state == HandshakeState.ONLINE) {
+                String ack = Long.toString(this.replicationOffset);
+                enqueue(key, RESPUtils.buildCommand(List.of("REPLCONF", "ACK", ack)));
+                return; // OP_WRITE remains set so that next select() will come back here
+        }
+
         key.interestOps(SelectionKey.OP_READ);
     }
 
@@ -75,15 +102,21 @@ public class MasterLink {
         switch (state) {
             case PING:
                 state = HandshakeState.REPLCONF_PORT;
-                send(key, RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", "6380")));
+                enqueue(key, RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", "6380")));
+//                state = HandshakeState.REPLCONF_PORT;
+//                send(key, RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", "6380")));
                 break;
             case REPLCONF_PORT:
+//                state = HandshakeState.REPLCONF_CAPA;
+//                send(key, RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
                 state = HandshakeState.REPLCONF_CAPA;
-                send(key, RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
+                enqueue(key, RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
                 break;
             case REPLCONF_CAPA:
+//                state = HandshakeState.PSYNC_FULLRESYNC;
+//                send(key, RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
                 state = HandshakeState.PSYNC_FULLRESYNC;
-                send(key, RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
+                enqueue(key, RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
                 break;
             case PSYNC_FULLRESYNC:
                 state = HandshakeState.PSYNC_RDB;
