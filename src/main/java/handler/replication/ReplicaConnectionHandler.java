@@ -36,7 +36,7 @@ public class ReplicaConnectionHandler implements Runnable {
             logger.info("Connected to master at " + masterHost + ":" + masterPort);
 
             OutputStream out = socket.getOutputStream();
-            BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
+            InputStream in = socket.getInputStream();
 
             completeHandShake1(out, in);
             completeHandShake2(out, in);
@@ -141,7 +141,7 @@ public class ReplicaConnectionHandler implements Runnable {
         return bout.toString(StandardCharsets.US_ASCII.name());
     }
 
-    private void startCommandReplicationLoop(OutputStream out, BufferedInputStream in) throws IOException {
+    private void startCommandReplicationLoop(OutputStream out, InputStream in) throws IOException {
         RESPParser parser = new RESPParser(in);
         while (true) {
             long offset = ReplicaConfig.getOffset();
@@ -174,10 +174,10 @@ public class ReplicaConnectionHandler implements Runnable {
 }
 
 class RESPParser {
-    private final BufferedInputStream in;
+    private final InputStream in;
     private long bytesRead = 0;
 
-    public RESPParser(BufferedInputStream in) {
+    public RESPParser(InputStream in) {
         this.in = in;
     }
 
