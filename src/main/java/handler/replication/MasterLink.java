@@ -133,7 +133,7 @@ public class MasterLink {
                 System.out.println("Replica is now ONLINE.");
                 byte[] initAck = RESPUtils.buildCommand(
                         List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
-                System.out.println("[slave] → QUEUEING initial “" + new String(initAck, StandardCharsets.UTF_8).trim() + "”");
+                System.out.println("[slave] → QUEUEING initial + new String(initAck, StandardCharsets.UTF_8).trim() + ");
                 enqueue(key, initAck);
                 break;
 
@@ -141,11 +141,15 @@ public class MasterLink {
                 if (resp instanceof List) {
                     @SuppressWarnings("unchecked")
                     List<String> args = (List<String>) resp;
+                    // Increment the replication offset based on the RESP command size
+                    int cmdSize = calculateRespCommandSize(args);
+                    replicationOffset += cmdSize;
+
                     String cmd = args.get(0).toUpperCase();
-                    if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
+                    if ("REPLCONF".equals(cmd) && args.size() > 1 && "GETACK".equalsIgnoreCase(args.get(1))) {
                         byte[] ackCmd = RESPUtils.buildCommand(
                                 List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
-                        System.out.println("[slave] → QUEUEING “" + new String(ackCmd, StandardCharsets.UTF_8).trim() + "”");
+                        System.out.println("[slave] → QUEUEING + new String(ackCmd, StandardCharsets.UTF_8).trim() + ");
                         enqueue(key, ackCmd);
                     } else {
                         Command c = CommandRegistry.getCommand(cmd);
@@ -154,6 +158,20 @@ public class MasterLink {
                 }
                 break;
         }
+    }
+
+    // Helper method to calculate the size of a RESP command
+    private int calculateRespCommandSize(List<String> args) {
+        // Calculate the size of "*<count>\r\n"
+        int size = 1 + String.valueOf(args.size()).length() + 2;
+
+        // Add size of each argument
+        for (String arg : args) {
+            // Size of "$<len>\r\n<data>\r\n"
+            size += 1 + String.valueOf(arg.length()).length() + 2 + arg.length() + 2;
+        }
+
+        return size;
     }
 
     private String readSimpleString(ByteBuffer buf) {
