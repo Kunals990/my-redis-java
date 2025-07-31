@@ -27,7 +27,6 @@ public class Main {
         String masterHost = null;
         int masterPort = -1;
         // Assume args are parsed here
-
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
         serverChannel.socket().bind(new InetSocketAddress(port));
