@@ -26,6 +26,19 @@ public class Main {
         int port = 6379;
         String masterHost = null;
         int masterPort = -1;
+
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--port") && i + 1 < args.length) {
+                port = Integer.parseInt(args[i + 1]);
+                i++;
+            } else if (args[i].equals("--replicaof") && i + 1 < args.length) {
+                String[] parts = args[i + 1].split(" ");
+                masterHost = parts[0];
+                masterPort = Integer.parseInt(parts[1]);
+                i++;
+            }
+        }
+
         // Assume args are parsed here
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
