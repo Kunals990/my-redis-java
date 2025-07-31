@@ -122,17 +122,19 @@ public class Main {
             cleanupConnection(key);
             return;
         }
-
+        RESPParser parser = new RESPParser(buffer);
         buffer.flip();
         while (buffer.hasRemaining()) {
-            RESPParser parser = new RESPParser(buffer);
-            List<String> commandParts = parser.parse();
-            if (commandParts != null) {
+            Object parsed = parser.parse();
+            if (parsed instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<String> commandParts = (List<String>) parsed;
                 String response = CommandHandler.handle(commandParts, clientChannel);
                 if (response != null) {
                     clientChannel.write(ByteBuffer.wrap(response.getBytes()));
                 }
             } else {
+                // Either incomplete or a simple string/integer—stop parsing
                 break;
             }
         }
