@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.LinkedList;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class ReplicaInfo {
 
@@ -13,7 +14,7 @@ public class ReplicaInfo {
     }
 
     private final SocketChannel channel;
-    private Queue<ByteBuffer> writeQueue = new LinkedList<>();
+    private Queue<ByteBuffer> writeQueue = new ConcurrentLinkedQueue<>();
     private final int listeningPort;
     private volatile long replicationOffset = 0;
     private volatile ReplicaState state;
