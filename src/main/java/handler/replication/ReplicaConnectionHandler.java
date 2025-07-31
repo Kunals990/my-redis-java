@@ -115,6 +115,7 @@ public class ReplicaConnectionHandler implements Runnable {
                 Command cmdImpl = CommandRegistry.getCommand(cmd);
                 System.out.println("Command is "+cmdImpl);
                 if (cmdImpl != null) {
+                    System.out.println("in if");
                     cmdImpl.execute(args, null);
                 }
             }
