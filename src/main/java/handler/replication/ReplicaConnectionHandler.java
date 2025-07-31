@@ -111,6 +111,26 @@ public class ReplicaConnectionHandler implements Runnable {
         // read and discard the exact RDB payload + its trailing CRLF
         in.readNBytes(len +2);
         logger.info("Drained RDB payload of " + len + " bytes");
+
+        RESPParser parser = new RESPParser(new BufferedInputStream(in));
+        List<String> initial = parser.parseArray();
+        if (initial.size() == 3
+                && "REPLCONF".equalsIgnoreCase(initial.get(0))
+                && "GETACK".equalsIgnoreCase(initial.get(1))) {
+            // send our ACK back:
+            long offset = ReplicaConfig.getOffset();
+            String off = Long.toString(offset);
+            String ack = "*3\r\n" +
+                    "$8\r\nREPLCONF\r\n" +
+                    "$3\r\nACK\r\n" +
+                    "$" + off.length() + "\r\n" +
+                    off + "\r\n";
+            out.write(ack.getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            logger.info("Sent initial ACK " + off);
+        } else {
+            throw new IOException("Expected initial REPLCONF GETACK, got: " + initial);
+        }
     }
 
     private String readLine(InputStream in) throws IOException {
