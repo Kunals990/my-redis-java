@@ -119,29 +119,35 @@ public class MasterLink {
 
             case REPLCONF_CAPA:
                 if (resp instanceof String && "OK".equals(resp)) {
-                    // Master will now send FULLRESYNC and RDB
                     // Next incoming message will be +FULLRESYNC
                     enqueue(key, RESPUtils.buildCommand(
                             List.of("PSYNC", "?", "-1")));
+                    state = HandshakeState.ONLINE;
                 }
-                state = HandshakeState.ONLINE;
-                // Immediately send initial ACK so tester can proceed
-                if (resp instanceof String && ((String) resp).startsWith("+FULLRESYNC")) {
-                    String[] parts = ((String) resp).split(" ");
-                    replicationOffset = Long.parseLong(parts[2]);
-                }
-                System.out.println("Replica is now ONLINE.");
-                byte[] initAck = RESPUtils.buildCommand(
-                        List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
-                System.out.println("[slave] → QUEUEING initial + new String(initAck, StandardCharsets.UTF_8).trim() + ");
-                enqueue(key, initAck);
                 break;
 
             case ONLINE:
-                if (resp instanceof List) {
+                // Process FULLRESYNC response after we've sent PSYNC
+                if (resp instanceof String && ((String) resp).startsWith("+FULLRESYNC")) {
+                    String[] parts = ((String) resp).split(" ");
+                    replicationOffset = Long.parseLong(parts[2]);
+                    System.out.println("Replica is now ONLINE.");
+                    byte[] initAck = RESPUtils.buildCommand(
+                            List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
+                    System.out.println("[slave] → QUEUEING initial \"" + new String(initAck, StandardCharsets.UTF_8).trim() + "\"");
+                    enqueue(key, initAck);
+                }
+                // Handle PING commands from master
+                else if (resp instanceof String && "PING".equals(resp)) {
+                    // PING is sent as "*1\r\n$4\r\nPING\r\n" (14 bytes)
+                    replicationOffset += 14;
+                    Command c = CommandRegistry.getCommand("PING");
+                    if (c != null) c.execute(List.of("PING"), null);
+                }
+                // Handle REPLCONF GETACK
+                else if (resp instanceof List) {
                     @SuppressWarnings("unchecked")
                     List<String> args = (List<String>) resp;
-                    // Increment the replication offset based on the RESP command size
                     int cmdSize = calculateRespCommandSize(args);
                     replicationOffset += cmdSize;
 
@@ -149,7 +155,7 @@ public class MasterLink {
                     if ("REPLCONF".equals(cmd) && args.size() > 1 && "GETACK".equalsIgnoreCase(args.get(1))) {
                         byte[] ackCmd = RESPUtils.buildCommand(
                                 List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
-                        System.out.println("[slave] → QUEUEING + new String(ackCmd, StandardCharsets.UTF_8).trim() + ");
+                        System.out.println("[slave] → QUEUEING \"" + new String(ackCmd, StandardCharsets.UTF_8).trim() + "\"");
                         enqueue(key, ackCmd);
                     } else {
                         Command c = CommandRegistry.getCommand(cmd);
