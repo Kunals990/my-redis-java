@@ -31,6 +31,15 @@ public class Main {
             }
         }
 
+        ServerSocketChannel serverChannel = ServerSocketChannel.open();
+        serverChannel.configureBlocking(false);
+        serverChannel.socket().bind(new InetSocketAddress(port));
+        System.out.println("Event-loop server started on port " + port);
+
+        Selector selector = Selector.open();
+        SelectorRegistry.setSelector(selector);
+        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+
         if (masterHost != null && masterPort != -1) {
             ServerConfig.setRole("slave");
             ServerConfig.setMaster_host(masterHost);
@@ -48,15 +57,6 @@ public class Main {
             Thread waitClientTimeout = new Thread(new WaitClientTimeoutChecker());
             waitClientTimeout.start();
         }
-
-        ServerSocketChannel serverChannel = ServerSocketChannel.open();
-        serverChannel.configureBlocking(false);
-        serverChannel.socket().bind(new InetSocketAddress(port));
-        System.out.println("Event-loop server started on port " + port);
-
-        Selector selector = Selector.open();
-        SelectorRegistry.setSelector(selector);
-        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
         BlockedClientTimeoutChecker timeoutChecker = new BlockedClientTimeoutChecker();
         timeoutChecker.start();
