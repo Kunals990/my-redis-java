@@ -1,4 +1,4 @@
-// In protocols/RESPParser.java
+// protocols/RESPParser.java
 package protocols;
 
 import java.nio.ByteBuffer;
@@ -13,65 +13,103 @@ public class RESPParser {
         this.buffer = buffer;
     }
 
-    public List<String> parse() {
-        if (!buffer.hasRemaining()) {
-            return null;
-        }
-        buffer.mark(); // Mark the current position in case of incomplete command
+    /**
+     * Parse the next complete RESP message from the buffer, if any:
+     *  - '*' => List<String>
+     *  - '+' => simple string (String)
+     *  - ':' => integer (Long)
+     * Returns null if there's not yet a full message.
+     */
+    public Object parse() {
+        if (!buffer.hasRemaining()) return null;
+        buffer.mark();
         char type = (char) buffer.get();
 
-        if (type == '*') {
-            return parseArray();
+        switch (type) {
+            case '*':
+                return parseArray();
+            case '+':
+                return parseSimpleString();
+            case ':':
+                return parseInteger();
+            default:
+                // Unsupported or incomplete; reset so next time we retry
+                buffer.reset();
+                return null;
         }
-
-        // If we don't have a complete command, reset the buffer to the mark
-        buffer.reset();
-        return null;
     }
 
     private List<String> parseArray() {
-        int numElements = parseInteger();
-        if (numElements == -1) {
-            return null; // Incomplete
+        Integer numElements = readIntCRLF();
+        if (numElements == null) {
+            buffer.reset();
+            return null;
         }
-
         List<String> result = new ArrayList<>(numElements);
         for (int i = 0; i < numElements; i++) {
-            if (buffer.get() != '$') {
-                return null; // Protocol error or incomplete
+            if (!buffer.hasRemaining() || (char) buffer.get() != '$') {
+                buffer.reset();
+                return null;
             }
-            int len = parseInteger();
-            if (len == -1) {
-                return null; // Incomplete
+            Integer len = readIntCRLF();
+            if (len == null || buffer.remaining() < len + 2) {
+                buffer.reset();
+                return null;
             }
-            if (buffer.remaining() < len + 2) { // +2 for \r\n
-                return null; // Incomplete
-            }
-            byte[] bulkStringBytes = new byte[len];
-            buffer.get(bulkStringBytes);
-            result.add(new String(bulkStringBytes, StandardCharsets.UTF_8));
-            // Consume trailing \r\n
+            byte[] bytes = new byte[len];
+            buffer.get(bytes);
+            result.add(new String(bytes, StandardCharsets.UTF_8));
+            // consume CRLF
             buffer.get();
             buffer.get();
         }
         return result;
     }
 
-    private int parseInteger() {
+    private String parseSimpleString() {
         StringBuilder sb = new StringBuilder();
-        char c;
         while (buffer.hasRemaining()) {
-            c = (char) buffer.get();
-            if (c == '\r') {
-                if (buffer.hasRemaining() && (char) buffer.get() == '\n') {
-                    return Integer.parseInt(sb.toString());
-                } else {
-                    // Incomplete CRLF
-                    return -1;
+            char c = (char) buffer.get();
+            if (c == '\r' && buffer.hasRemaining() && (char) buffer.get() == '\n') {
+                return sb.toString();
+            }
+            sb.append(c);
+        }
+        buffer.reset();
+        return null;
+    }
+
+    private Long parseInteger() {
+        StringBuilder sb = new StringBuilder();
+        while (buffer.hasRemaining()) {
+            char c = (char) buffer.get();
+            if (c == '\r' && buffer.hasRemaining() && (char) buffer.get() == '\n') {
+                try {
+                    return Long.parseLong(sb.toString());
+                } catch (NumberFormatException e) {
+                    return null;
                 }
             }
             sb.append(c);
         }
-        return -1; // Incomplete
+        buffer.reset();
+        return null;
+    }
+
+    /** Helper: read an ASCII integer ending in CRLF; returns null if incomplete */
+    private Integer readIntCRLF() {
+        StringBuilder sb = new StringBuilder();
+        while (buffer.hasRemaining()) {
+            char c = (char) buffer.get();
+            if (c == '\r' && buffer.hasRemaining() && (char) buffer.get() == '\n') {
+                try {
+                    return Integer.parseInt(sb.toString());
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+            sb.append(c);
+        }
+        return null; // incomplete
     }
 }
