@@ -34,20 +34,31 @@ public class ReplicaConnectionHandler implements Runnable {
 
     @Override
     public void run() {
+        System.out.println("REPLICA: Connection handler thread started."); // <-- ADD THIS
         try (Socket socket = new Socket(masterHost, masterPort)) {
-            logger.info("Connected to master at " + masterHost + ":" + masterPort);
+            System.out.println("REPLICA: Socket connected to master at " + masterHost + ":" + masterPort); // <-- ADD THIS
 
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
 
             completeHandShake1(out, in);
+            System.out.println("REPLICA: Handshake 1 (PING) complete."); // <-- ADD THIS
+
             completeHandShake2(out, in);
+            System.out.println("REPLICA: Handshake 2 (REPLCONF port) complete."); // <-- ADD THIS
+
             completeHandShake3(out, in);
+            System.out.println("REPLICA: Handshake 3 (REPLCONF capa) complete."); // <-- ADD THIS
+
             completeHandShake4(out, in);
+            System.out.println("REPLICA: Handshake 4 (PSYNC) complete."); // <-- ADD THIS
+
             startCommandReplicationLoop(out, in);
 
-        } catch (IOException e) {
-            logger.severe("Failed to connect to master: " + e.getMessage());
+        } catch (Throwable t) { // <-- CATCH THROWABLE, NOT JUST IOEXCEPTION
+            // This will catch any and all errors and print a full stack trace.
+            System.out.println("REPLICA: CRITICAL ERROR IN REPLICA THREAD");
+            t.printStackTrace(System.out);
         }
     }
 
