@@ -41,7 +41,7 @@ public class MasterLink {
     /** Queue up a frame and wake the selector so handleWrite will fire. */
     private void enqueue(SelectionKey key, byte[] data) {
         outbound.add(ByteBuffer.wrap(data));
-        key.interestOps(SelectionKey.OP_WRITE);
+        key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
         selector.wakeup();
     }
 
@@ -176,9 +176,10 @@ public class MasterLink {
                     @SuppressWarnings("unchecked")
                     List<String> args = (List<String>) resp;
                     String cmd = args.get(0).toUpperCase();
-                    if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
+                    if ("REPLCONF".equalsIgnoreCase(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
                         enqueue(key, RESPUtils.buildCommand(
                                 List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
+                        handleWrite(key);
                     } else {
                         Command c = CommandRegistry.getCommand(cmd);
                         if (c != null) {
