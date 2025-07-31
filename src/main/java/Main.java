@@ -1,6 +1,7 @@
 import config.ServerConfig;
 import handler.CommandHandler;
 import handler.SelectorRegistry;
+import handler.WaitClientTimeoutChecker;
 import handler.replication.*;
 import protocols.RESPParser;
 
