@@ -31,15 +31,6 @@ public class ReplicaManager {
         System.out.println("[ReplicaManager] Cleared all replicas.");
     }
 
-    public static void updateReplicaOffset(SocketChannel channel, long offset) {
-        for (ReplicaInfo replica : replicas) {
-            if (replica.getChannel().equals(channel)) {
-                replica.setReplicationOffset(offset);
-                break;
-            }
-        }
-    }
-
     public static ReplicaInfo getReplicaByChannel(SocketChannel channel) {
         for (ReplicaInfo replica : replicas) {
             if (replica.getChannel().equals(channel)) {

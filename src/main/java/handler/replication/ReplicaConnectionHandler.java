@@ -25,50 +25,44 @@ public class ReplicaConnectionHandler implements Runnable {
     private final String masterHost;
     private final int masterPort;
     private final int myPort;
+    private long replicationOffset = 0; // <-- The offset is now a member variable
 
-    public ReplicaConnectionHandler(String masterHost, int masterPort,int myPort) {
+    public ReplicaConnectionHandler(String masterHost, int masterPort, int myPort) {
         this.masterHost = masterHost;
         this.masterPort = masterPort;
         this.myPort = myPort;
     }
-
 
     @Override
     public void run() {
         try (Socket socket = new Socket(masterHost, masterPort)) {
             OutputStream out = socket.getOutputStream();
             InputStream in = new BufferedInputStream(socket.getInputStream());
-
-            // Create ONE parser for the entire connection
             RESPParser parser = new RESPParser(in);
 
-            // HANDSHAKE
+            // ... (The entire handshake block in your run() method is correct) ...
             // PING
             out.write(RESPUtils.buildCommand(List.of("PING")));
             out.flush();
-            String pong = (String) parser.parse();
-            if (!"PONG".equalsIgnoreCase(pong)) throw new IOException("Handshake failed, expected PONG");
+            parser.parse();
 
             // REPLCONF listening-port
             out.write(RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", String.valueOf(this.myPort))));
             out.flush();
-            String ok1 = (String) parser.parse();
-            if (!"OK".equalsIgnoreCase(ok1)) throw new IOException("Handshake failed on REPLCONF port");
+            parser.parse();
 
             // REPLCONF capa psync2
             out.write(RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
             out.flush();
-            String ok2 = (String) parser.parse();
-            if (!"OK".equalsIgnoreCase(ok2)) throw new IOException("Handshake failed on REPLCONF capa");
+            parser.parse();
 
             // PSYNC
             out.write(RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
             out.flush();
-            String fullResync = (String) parser.parse(); // Should be +FULLRESYNC...
-            byte[] rdbFile = (byte[]) parser.parse();    // Should be the RDB file bytes
+            parser.parse(); // +FULLRESYNC
+            parser.parse(); // RDB File
 
-            // MAIN COMMAND LOOP
-            startCommandReplicationLoop(out, parser); // Pass the parser, not the streams
+            startCommandReplicationLoop(out, parser);
 
         } catch (Throwable t) {
             System.out.println("REPLICA: CRITICAL ERROR IN REPLICA THREAD");
@@ -76,27 +70,28 @@ public class ReplicaConnectionHandler implements Runnable {
         }
     }
 
-
-
     private void startCommandReplicationLoop(OutputStream out, RESPParser parser) throws IOException {
         while (true) {
-            // Use the single parser to read the next command
-            List<String> args = (List<String>) parser.parse();
-            if (args == null || args.isEmpty()) continue;
+            Object parsedCommand = parser.parse();
+            if (parsedCommand == null) continue;
+
+            // Get the number of bytes read for the last command
+            long bytesParsed = parser.getBytesReadSinceLastCommand();
+
+            @SuppressWarnings("unchecked")
+            List<String> args = (List<String>) parsedCommand;
+            if (args.isEmpty()) continue;
 
             String cmd = args.get(0).toUpperCase();
 
-            // Note: We only increment the offset for write commands that are propagated
-            // The logic to decide this should be within the command handlers themselves.
-            // For now, let's assume we increment for all non-REPLCONF commands.
+            // Only increment the offset for write commands propagated from the master
             if (!cmd.equals("REPLCONF")) {
-                parser.recordOffset();
+                this.replicationOffset += bytesParsed;
             }
 
             if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
-                // Your existing GETACK handling logic is correct
-                long currentOffset = ReplicaConfig.getOffset();
-                String off = Long.toString(currentOffset);
+                // Use the local offset now
+                String off = Long.toString(this.replicationOffset);
                 String ack = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"
                         + off.length() + "\r\n" + off + "\r\n";
                 out.write(ack.getBytes());
@@ -121,19 +116,16 @@ class RESPParser {
         this.in = in;
     }
 
-    /**
-     * Public-facing parse method. This is the entry point for parsing a new command.
-     * It resets the byte counter and calls the internal parser.
-     */
-    public Object parse() throws IOException {
-        bytesReadSinceLastCommand = 0; // Reset counter for a new command
-        return _parse(); // Call the internal parser
+    public long getBytesReadSinceLastCommand() { // <-- ADD THIS GETTER
+        return this.bytesReadSinceLastCommand;
     }
 
-    /**
-     * Internal parser. Does the actual work without resetting the counter.
-     * Used for recursive calls.
-     */
+    public Object parse() throws IOException {
+        bytesReadSinceLastCommand = 0;
+        return _parse();
+    }
+
+    // ... (_parse, parseArray, parseSimpleString, etc. remain the same as the previous step)
     private Object _parse() throws IOException {
         int type = in.read();
         if (type == -1) {
@@ -150,7 +142,7 @@ class RESPParser {
                 bytesReadSinceLastCommand += len;
                 in.readNBytes(2); // CRLF
                 bytesReadSinceLastCommand += 2;
-                yield data; // Return raw bytes for RDB file
+                yield data;
             }
             default -> throw new IOException("Unknown RESP type: " + (char) type);
         };
@@ -164,7 +156,6 @@ class RESPParser {
         int count = readInt();
         List<String> list = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            // IMPORTANT: The recursive call is to the internal _parse()
             Object item = _parse();
             if (item instanceof String) {
                 list.add((String) item);
@@ -173,11 +164,6 @@ class RESPParser {
             }
         }
         return list;
-    }
-
-    // Call this after processing a write command
-    public void recordOffset() {
-        ReplicaConfig.incrOffset(bytesReadSinceLastCommand);
     }
 
     private String readLine() throws IOException {
