@@ -17,6 +17,10 @@ public class ReplicaManager {
         return replicas;
     }
 
+    public static int noOfReplicas(){
+        return replicas.size();
+    }
+
     public static void removeReplica(SocketChannel channel) {
         replicas.removeIf(r -> r.getChannel().equals(channel));
         System.out.println("[ReplicaManager] Removed replica: " + channel);
@@ -25,5 +29,33 @@ public class ReplicaManager {
     public static void clearAll() {
         replicas.clear();
         System.out.println("[ReplicaManager] Cleared all replicas.");
+    }
+
+    public static void updateReplicaOffset(SocketChannel channel, long offset) {
+        for (ReplicaInfo replica : replicas) {
+            if (replica.getChannel().equals(channel)) {
+                replica.setReplicationOffset(offset);
+                break;
+            }
+        }
+    }
+
+    public static ReplicaInfo getReplicaByChannel(SocketChannel channel) {
+        for (ReplicaInfo replica : replicas) {
+            if (replica.getChannel().equals(channel)) {
+                return replica;
+            }
+        }
+        return null;
+    }
+
+    public static int getNumReplicasAcked(long offset) {
+        int count = 0;
+        for (ReplicaInfo replica : replicas) {
+            if (replica.getReplicationOffset() >= offset) {
+                count++;
+            }
+        }
+        return count;
     }
 }

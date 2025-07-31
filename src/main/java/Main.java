@@ -1,13 +1,13 @@
-import handler.BlockedClientTimeoutChecker;
-import handler.CommandHandler;
+import handler.*;
 import config.ServerConfig;
-import handler.replication.ReplicaConnectionHandler;
+import handler.replication.*;
 import protocols.RESPParser;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -41,6 +41,16 @@ public class Main {
             }
         }
 
+
+        if (ServerConfig.isMaster()) {
+            Thread getAckThread = new Thread(new GetAckBroadcaster());
+            getAckThread.start();
+            Thread replicaAckListner =  new Thread(new ReplicaAckListener());
+            replicaAckListner.start();
+            Thread waitClientTimeout = new Thread(new WaitClientTimeoutChecker());
+            waitClientTimeout.start();
+        }
+
         // Step 1: Setup non-blocking server socket channel
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
@@ -49,6 +59,7 @@ public class Main {
 
         // Step 2: Register server socket with selector for accept events
         Selector selector = Selector.open();
+        SelectorRegistry.setSelector(selector);
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
         BlockedClientTimeoutChecker timeoutChecker = new BlockedClientTimeoutChecker();
@@ -77,9 +88,14 @@ public class Main {
                     }
                 }
 
-                // Read data from client
                 if (key.isReadable()) {
                     SocketChannel clientChannel = (SocketChannel) key.channel();
+
+                    if (BlockingClientManager.getInstance().isBlocked(clientChannel)  || WaitClientManager.isWaiting(clientChannel)) {
+                        System.out.println("Ignored command from blocked client: " + clientChannel.getRemoteAddress());
+                        continue;
+                    }
+
                     ByteBuffer buffer = ByteBuffer.allocate(1024);
 
                     int bytesRead = -1;
@@ -102,12 +118,17 @@ public class Main {
 
                     // Process the input
                     buffer.flip();
-                    String input = new String(buffer.array(), 0, buffer.limit()).trim();
+                    String input = new String(buffer.array(), 0, buffer.limit());
+                    int respBytes = input.getBytes(StandardCharsets.UTF_8).length;
                     System.out.println("Received: " + input);
 
                     try{
                         List<String> commandParts = RESPParser.parse(input);
                         System.out.println("Parsed command: "+commandParts);
+                        String commandName = commandParts.get(0).toUpperCase();
+                        if (isWriteCommand(commandName)) {
+                            ServerConfig.setMaster_offset(respBytes);
+                        }
 
                         String response = CommandHandler.handle(commandParts,clientChannel);
                         if (response != null) {
@@ -118,7 +139,44 @@ public class Main {
                         throw new RuntimeException(e);
                     }
                 }
+
+                if (key.isWritable()) {
+                    SocketChannel channel = (SocketChannel) key.channel();
+
+                    ReplicaInfo replica = ReplicaManager.getReplicaByChannel(channel);
+                    if (replica != null) {
+                        ByteBuffer buffer;
+
+                        while ((buffer = replica.getWriteQueue().peek()) != null) {
+                            try {
+                                channel.write(buffer);
+                                if (buffer.hasRemaining()) {
+                                    // Could not write entire buffer; wait for next writable
+                                    break;
+                                }
+                                replica.getWriteQueue().poll(); // Remove fully written buffer
+                            } catch (IOException e) {
+                                System.err.println("Failed to write to replica: " + e.getMessage());
+                                key.cancel();
+                                channel.close();
+                                break;
+                            }
+                        }
+
+                        if (replica.getWriteQueue().isEmpty()) {
+                            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                        }
+                    }
+                }
+
             }
         }
+    }
+
+    private static boolean isWriteCommand(String cmd) {
+        return switch (cmd) {
+            case "SET", "DEL", "RPUSH", "LPUSH", "LSET", "LREM", "XADD", "INCR", "DECR" -> true;
+            default -> false;
+        };
     }
 }

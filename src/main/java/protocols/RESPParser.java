@@ -4,8 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class RESPParser {
-
+    private static long bytesRead = 0;
     public static List<String> parse(String input) {
+        bytesRead = 0;
         List<String> args = new ArrayList<>();
 
         if (!input.startsWith("*")) {

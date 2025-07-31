@@ -2,6 +2,7 @@ package handler.commands;
 
 import config.ServerConfig;
 import handler.Command;
+import handler.SelectorRegistry;
 import handler.replication.ReplicaInfo;
 import handler.replication.ReplicaManager;
 import protocols.RESPBuilder;
@@ -10,12 +11,16 @@ import util.RESPUtils;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.List;
 
 public class SetCommand implements Command {
 
     KeyValueStore store = KeyValueStore.getInstance();
+
+    Selector selector = SelectorRegistry.getSelector();
 
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) {
@@ -32,26 +37,23 @@ public class SetCommand implements Command {
             }
         }
 
-        String key = args.get(1);
+        String key1 = args.get(1);
         String value = args.get(2);
 
-        store.set(key,value,expiry);
+        store.set(key1,value,expiry);
 
         if(ServerConfig.getRole().equalsIgnoreCase("master")){
             List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
             byte[] commandBytes = RESPUtils.buildCommand(args);
             for(ReplicaInfo replica :replicas ){
-                try {
-                    SocketChannel replicaChannel = replica.getChannel();
-                    replicaChannel.write(ByteBuffer.wrap(commandBytes));
-                }catch (IOException e){
-                    return "-ERR Invalid Replica "+replica;
+                SocketChannel replicaChannel = replica.getChannel();
+                replica.getWriteQueue().add(ByteBuffer.wrap(commandBytes));
+                SelectionKey key = replicaChannel.keyFor(selector);
+                if (key != null && key.isValid()) {
+                    key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
                 }
 
             }
-        }
-        if(ServerConfig.getRole().equalsIgnoreCase("slave")){
-            return null;
         }
         return "+OK\r\n";
     }

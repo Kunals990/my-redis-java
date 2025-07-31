@@ -9,6 +9,8 @@ public class ServerConfig {
     private static String master_replid="8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
     private static String master_repl_offset="0";
 
+    private static long master_offset=0;
+
     public static void setRole(String r){
         role=r;
     }
@@ -47,5 +49,17 @@ public class ServerConfig {
 
     public static void setMaster_port(String master_port) {
         ServerConfig.master_port = master_port;
+    }
+
+    public static boolean isMaster(){
+        return role.equalsIgnoreCase("master");
+    }
+
+    public static void setMaster_offset(long master_offset) {
+        ServerConfig.master_offset+=master_offset;
+    }
+
+    public static long getMaster_offset() {
+        return master_offset;
     }
 }

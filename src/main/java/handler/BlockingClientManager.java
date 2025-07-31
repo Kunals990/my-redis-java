@@ -70,4 +70,15 @@ public class BlockingClientManager {
         }
         return expired;
     }
+
+    public synchronized boolean isBlocked(SocketChannel client) {
+        for (Queue<BlockedClient> queue : blockedClients.values()) {
+            for (BlockedClient bc : queue) {
+                if (bc.channel.equals(client)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }
