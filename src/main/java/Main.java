@@ -103,7 +103,6 @@ public class Main {
                     if (key.isReadable()) {
                         handleReadableKey(key);
                     }
-
                     if (key.isWritable()) {
                         handleWritableKey(key);
                     }
