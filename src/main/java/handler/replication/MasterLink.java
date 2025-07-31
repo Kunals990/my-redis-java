@@ -21,6 +21,7 @@ public class MasterLink {
     private final Selector selector;
     private final ByteBuffer readBuffer = ByteBuffer.allocate(1024);
     private long replicationOffset = 0;
+    private final int myPort;
 
     private final Deque<ByteBuffer> outbound = new ArrayDeque<>();
 
@@ -33,11 +34,13 @@ public class MasterLink {
         this.channel.configureBlocking(false);
         this.channel.register(selector, SelectionKey.OP_CONNECT, this);
         this.channel.connect(new InetSocketAddress(host, port));
+        this.myPort = myPort;
     }
 
     private void enqueue(SelectionKey key, byte[] data) {
         outbound.add(ByteBuffer.wrap(data));
         key.interestOps(SelectionKey.OP_WRITE);
+        selector.wakeup();
     }
 
     public void handleConnect(SelectionKey key) throws IOException {
@@ -84,27 +87,28 @@ public class MasterLink {
         }
 
         if (state == HandshakeState.ONLINE) {
-                String ack = Long.toString(this.replicationOffset);
-                enqueue(key, RESPUtils.buildCommand(List.of("REPLCONF", "ACK", ack)));
+//                String ack = Long.toString(this.replicationOffset);
+//                enqueue(key, RESPUtils.buildCommand(List.of("REPLCONF", "ACK", ack)));
+                enqueue(key,RESPUtils.buildCommand(List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
                 return; // OP_WRITE remains set so that next select() will come back here
         }
 
         key.interestOps(SelectionKey.OP_READ);
     }
 
-    private void send(SelectionKey key, byte[] data) throws IOException {
-        channel.write(ByteBuffer.wrap(data));
-        key.interestOps(SelectionKey.OP_READ);
-    }
+//    private void send(SelectionKey key, byte[] data) throws IOException {
+//        channel.write(ByteBuffer.wrap(data));
+//        key.interestOps(SelectionKey.OP_READ);
+//    }
 
     private void processResponse(SelectionKey key, Object response) throws IOException {
         // Here we manage the handshake as a state machine
         switch (state) {
             case PING:
                 state = HandshakeState.REPLCONF_PORT;
-                enqueue(key, RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", "6380")));
 //                state = HandshakeState.REPLCONF_PORT;
 //                send(key, RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", "6380")));
+                enqueue(key, RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", String.valueOf(myPort))));
                 break;
             case REPLCONF_PORT:
 //                state = HandshakeState.REPLCONF_CAPA;
