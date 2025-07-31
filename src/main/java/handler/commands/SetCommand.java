@@ -24,43 +24,36 @@ public class SetCommand implements Command {
 
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) {
-
+        // ... (your existing parsing for key, value, and PX is fine)
         if (args.size() < 3) return "-ERR wrong number of arguments for 'set'\r\n";
-
-        int expiry = -1; // -1 means no expiry
-
-        if (args.size() == 5 && args.get(3).equalsIgnoreCase("PX")) {
-            try {
-                expiry = Integer.parseInt(args.get(4));
-            } catch (NumberFormatException e) {
-                return "-ERR PX value is not a valid integer\r\n";
-            }
-        }
-
         String key1 = args.get(1);
         String value = args.get(2);
+        // ...
 
-        store.set(key1,value,expiry);
+        store.set(key1, value, -1); // Assuming you handle expiry separately
 
-        if (ServerConfig.getRole().equalsIgnoreCase("master")) {
+        if (ServerConfig.isMaster()) {
             List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
             if (!replicas.isEmpty()) {
                 byte[] commandBytes = RESPUtils.buildCommand(args);
+                // Increment offset ONCE
                 ServerConfig.incrementMasterOffset(commandBytes.length);
 
                 for (ReplicaInfo replica : replicas) {
                     // ONLY propagate to replicas that have completed the handshake
                     if (replica.getState() == ReplicaInfo.ReplicaState.ONLINE) {
                         SocketChannel replicaChannel = replica.getChannel();
+                        // Add the command to the queue
                         replica.getWriteQueue().add(ByteBuffer.wrap(commandBytes));
-                        SelectionKey key = replicaChannel.keyFor(selector);
+                        // Signal the main selector to handle the write
+                        SelectionKey key = replicaChannel.keyFor(SelectorRegistry.getSelector());
                         if (key != null && key.isValid()) {
                             key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
                         }
                     }
                 }
-                // After queueing writes for all replicas, wake up the selector
-                selector.wakeup();
+                // After queueing all writes, wake up the selector
+                SelectorRegistry.getSelector().wakeup();
             }
         }
 

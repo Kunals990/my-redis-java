@@ -13,14 +13,14 @@ import java.nio.channels.SocketChannel;
 import java.util.List;
 
 public class GetAckBroadcaster implements Runnable {
+
     @Override
     public void run() {
-        // Get the main selector once.
         Selector selector = SelectorRegistry.getSelector();
 
         while (true) {
             try {
-                Thread.sleep(200); // Wait first to give handshakes time
+                Thread.sleep(200); // Wait a bit
 
                 List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
                 if (replicas.isEmpty()) {
@@ -41,14 +41,14 @@ public class GetAckBroadcaster implements Runnable {
                         SelectionKey key = replicaChannel.keyFor(selector);
                         if (key != null && key.isValid()) {
                             key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
-                            // Wake up the selector immediately if it's blocking
-                            selector.wakeup();
                         }
                     }
                 }
+                // After queueing all ACKs, wake up the selector
+                selector.wakeup();
+
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                e.printStackTrace();
                 break;
             }
         }
