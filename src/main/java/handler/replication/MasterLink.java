@@ -181,6 +181,7 @@ public class MasterLink {
 //                                List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
 //                        handleWrite(key);
                         byte[] ackCmd = RESPUtils.buildCommand(List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
+                        System.out.println("[slave] → SEND “" + new String(ackCmd, StandardCharsets.UTF_8).trim() + "”");
                         channel.write(ByteBuffer.wrap(ackCmd));
                     } else {
                         Command c = CommandRegistry.getCommand(cmd);
