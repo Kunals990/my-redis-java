@@ -8,7 +8,7 @@ public class ValueWithExpiry {
     private final long expiryMillis;
     private final Instant createdAt;
 
-    public ValueWithExpiry(String value, Integer time, Instant setTime) {
+    public ValueWithExpiry(String value, long time, Instant setTime) {
         this.value = value;
         this.expiryMillis = time;
         this.createdAt = setTime;
