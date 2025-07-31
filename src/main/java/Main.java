@@ -122,7 +122,7 @@ public class Main {
 //                        System.out.println("Parsed command: "+commandParts);
                         String commandName = commandParts.get(0).toUpperCase();
                         if (isWriteCommand(commandName)) {
-                            ServerConfig.setMaster_offset(respBytes);
+                            ServerConfig.incrementMasterOffset(respBytes);
                         }
 
                         String response = CommandHandler.handle(commandParts,clientChannel);

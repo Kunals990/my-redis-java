@@ -42,19 +42,28 @@ public class SetCommand implements Command {
 
         store.set(key1,value,expiry);
 
-        if(ServerConfig.getRole().equalsIgnoreCase("master")){
+        if (ServerConfig.getRole().equalsIgnoreCase("master")) {
             List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
-            byte[] commandBytes = RESPUtils.buildCommand(args);
-            for(ReplicaInfo replica :replicas ){
-                SocketChannel replicaChannel = replica.getChannel();
-                replica.getWriteQueue().add(ByteBuffer.wrap(commandBytes));
-                SelectionKey key = replicaChannel.keyFor(selector);
-                if (key != null && key.isValid()) {
-                    key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
-                }
+            if (!replicas.isEmpty()) {
+                byte[] commandBytes = RESPUtils.buildCommand(args);
+                ServerConfig.incrementMasterOffset(commandBytes.length);
 
+                for (ReplicaInfo replica : replicas) {
+                    // ONLY propagate to replicas that have completed the handshake
+                    if (replica.getState() == ReplicaInfo.ReplicaState.ONLINE) {
+                        SocketChannel replicaChannel = replica.getChannel();
+                        replica.getWriteQueue().add(ByteBuffer.wrap(commandBytes));
+                        SelectionKey key = replicaChannel.keyFor(selector);
+                        if (key != null && key.isValid()) {
+                            key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                        }
+                    }
+                }
+                // After queueing writes for all replicas, wake up the selector
+                selector.wakeup();
             }
         }
+
         return "+OK\r\n";
     }
 }

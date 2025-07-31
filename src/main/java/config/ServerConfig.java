@@ -55,8 +55,8 @@ public class ServerConfig {
         return role.equalsIgnoreCase("master");
     }
 
-    public static void setMaster_offset(long master_offset) {
-        ServerConfig.master_offset+=master_offset;
+    public static void incrementMasterOffset(long bytes) {
+        ServerConfig.master_offset += bytes;
     }
 
     public static long getMaster_offset() {
