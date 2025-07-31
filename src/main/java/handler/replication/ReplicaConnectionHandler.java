@@ -89,18 +89,18 @@ public class ReplicaConnectionHandler implements Runnable {
     }
 
     private void completeHandShake4(OutputStream out, InputStream in) throws IOException {
-        // send PSYNC ? -1
+        // Send PSYNC ? -1
         List<String> req = List.of("PSYNC", "?", "-1");
         out.write(RESPUtils.buildCommand(req));
         out.flush();
 
-        // read +FULLRESYNC ... line
-        String status = readLine(in);
-        if (!status.startsWith("+FULLRESYNC")) {
-            throw new IOException("Unexpected PSYNC reply: " + status);
+        // Read +FULLRESYNC <REPL_ID> <OFFSET>
+        String fullResyncResponse = readLine(in);
+        if (!fullResyncResponse.startsWith("+FULLRESYNC")) {
+            throw new IOException("Handshake4 failed, expected +FULLRESYNC, got: " + fullResyncResponse);
         }
 
-        // expect RDB bulk header: $<len>\r\n
+        // Read the RDB file header: $<length>\r\n
         int dollar = in.read();
         if (dollar != '$') {
             throw new IOException("Expected '$' for RDB bulk, got: " + (char)dollar);
@@ -108,29 +108,14 @@ public class ReplicaConnectionHandler implements Runnable {
         String lenLine = readLine(in);
         int len = Integer.parseInt(lenLine);
 
-        // read and discard the exact RDB payload + its trailing CRLF
-        in.readNBytes(len +2);
+        // Read and discard the RDB payload bytes.
+        // The RDB file itself is terminated by a CRLF, but readNBytes does not consume it.
+        // However, since we are moving to a line-based RESPParser next, this is fine.
+        // For robustness, you could read len + 2 to consume the trailing CRLF, but it's not strictly necessary here.
+        in.readNBytes(len);
         logger.info("Drained RDB payload of " + len + " bytes");
 
-        RESPParser parser = new RESPParser(new BufferedInputStream(in));
-        List<String> initial = parser.parseArray();
-        if (initial.size() == 3
-                && "REPLCONF".equalsIgnoreCase(initial.get(0))
-                && "GETACK".equalsIgnoreCase(initial.get(1))) {
-            // send our ACK back:
-            long offset = ReplicaConfig.getOffset();
-            String off = Long.toString(offset);
-            String ack = "*3\r\n" +
-                    "$8\r\nREPLCONF\r\n" +
-                    "$3\r\nACK\r\n" +
-                    "$" + off.length() + "\r\n" +
-                    off + "\r\n";
-            out.write(ack.getBytes(StandardCharsets.US_ASCII));
-            out.flush();
-            logger.info("Sent initial ACK " + off);
-        } else {
-            throw new IOException("Expected initial REPLCONF GETACK, got: " + initial);
-        }
+        // The handshake is now complete. The command replication loop will handle subsequent commands.
     }
 
     private String readLine(InputStream in) throws IOException {
