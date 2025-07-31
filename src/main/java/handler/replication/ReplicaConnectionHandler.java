@@ -24,10 +24,12 @@ public class ReplicaConnectionHandler implements Runnable {
     private static final Logger logger = Logger.getLogger(ReplicaConnectionHandler.class.getName());
     private final String masterHost;
     private final int masterPort;
+    private final int myPort;
 
-    public ReplicaConnectionHandler(String masterHost, int masterPort) {
+    public ReplicaConnectionHandler(String masterHost, int masterPort,int myPort) {
         this.masterHost = masterHost;
         this.masterPort = masterPort;
+        this.myPort = myPort;
     }
 
     @Override
@@ -63,7 +65,7 @@ public class ReplicaConnectionHandler implements Runnable {
     }
 
     private void completeHandShake2(OutputStream out, InputStream in) throws IOException {
-        List<String> req = List.of("REPLCONF", "listening-port", "6380");
+        List<String> req = List.of("REPLCONF", "listening-port", String.valueOf(this.myPort));
         out.write(RESPUtils.buildCommand(req));
         out.flush();
 

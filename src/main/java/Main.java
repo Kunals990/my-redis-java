@@ -31,12 +31,12 @@ public class Main {
             if(args[i].equals("--replicaof")){
                 String[] parts = args[i + 1].split(" ");
                 String masterHost = parts[0];
-                String masterPort = parts[1];
+                int masterPort = Integer.parseInt(parts[1]);
                 ServerConfig.setMaster_host(masterHost);
-                ServerConfig.setMaster_port(masterPort);
+                ServerConfig.setMaster_port(String.valueOf(masterPort));
                 ServerConfig.setRole("slave");
 
-                ReplicaConnectionHandler replicaHandler = new ReplicaConnectionHandler(masterHost,Integer.parseInt(masterPort));
+                ReplicaConnectionHandler replicaHandler = new ReplicaConnectionHandler(masterHost,masterPort,port);
                 Executors.newSingleThreadExecutor().submit(replicaHandler);
             }
         }
