@@ -177,9 +177,11 @@ public class MasterLink {
                     List<String> args = (List<String>) resp;
                     String cmd = args.get(0).toUpperCase();
                     if ("REPLCONF".equalsIgnoreCase(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
-                        enqueue(key, RESPUtils.buildCommand(
-                                List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
-                        handleWrite(key);
+//                        enqueue(key, RESPUtils.buildCommand(
+//                                List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
+//                        handleWrite(key);
+                        byte[] ackCmd = RESPUtils.buildCommand(List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
+                        channel.write(ByteBuffer.wrap(ackCmd));
                     } else {
                         Command c = CommandRegistry.getCommand(cmd);
                         if (c != null) {
