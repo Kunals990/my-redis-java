@@ -45,9 +45,6 @@ public class Main {
         if (ServerConfig.isMaster()) {
             Thread getAckThread = new Thread(new GetAckBroadcaster());
             getAckThread.start();
-            // Get the singleton instance to start the thread
-            Thread replicaAckListener =  new Thread(ReplicaAckListener.getInstance());
-            replicaAckListener.start();
             Thread waitClientTimeout = new Thread(new WaitClientTimeoutChecker());
             waitClientTimeout.start();
         }

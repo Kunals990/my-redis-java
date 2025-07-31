@@ -11,13 +11,6 @@ public class ReplicaManager {
 
     public static void addReplica(SocketChannel channel, int listeningPort) {
         replicas.add(new ReplicaInfo(channel, listeningPort));
-        try {
-            // Tell the listener to start watching this new replica for ACKs
-            ReplicaAckListener.getInstance().registerNewReplica(channel);
-        } catch (IOException e) {
-            System.err.println("Failed to register new replica with ACK listener");
-            e.printStackTrace();
-        }
     }
 
     public static List<ReplicaInfo> getReplicas() {
