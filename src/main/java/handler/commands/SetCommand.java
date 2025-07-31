@@ -5,11 +5,9 @@ import handler.Command;
 import handler.SelectorRegistry;
 import handler.replication.ReplicaInfo;
 import handler.replication.ReplicaManager;
-import protocols.RESPBuilder;
 import store.KeyValueStore;
 import util.RESPUtils;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -18,45 +16,71 @@ import java.util.List;
 
 public class SetCommand implements Command {
 
-    KeyValueStore store = KeyValueStore.getInstance();
-
-    Selector selector = SelectorRegistry.getSelector();
+    // This command handler is now completely stateless.
+    // It has no member variables.
 
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) {
-        // ... (your existing parsing for key, value, and PX is fine)
-        if (args.size() < 3) return "-ERR wrong number of arguments for 'set'\r\n";
-        String key1 = args.get(1);
-        String value = args.get(2);
-        // ...
+        // --- 1. Argument Parsing ---
+        if (args.size() < 3) {
+            return "-ERR wrong number of arguments for 'set'\r\n";
+        }
+        final String key = args.get(1);
+        final String value = args.get(2);
+        long px = -1; // Expiry time in milliseconds
 
-        store.set(key1, value, -1); // Assuming you handle expiry separately
-
-        if (ServerConfig.isMaster()) {
-            List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
-            if (!replicas.isEmpty()) {
-                byte[] commandBytes = RESPUtils.buildCommand(args);
-                // Increment offset ONCE
-                ServerConfig.incrementMasterOffset(commandBytes.length);
-
-                for (ReplicaInfo replica : replicas) {
-                    // ONLY propagate to replicas that have completed the handshake
-                    if (replica.getState() == ReplicaInfo.ReplicaState.ONLINE) {
-                        SocketChannel replicaChannel = replica.getChannel();
-                        // Add the command to the queue
-                        replica.getWriteQueue().add(ByteBuffer.wrap(commandBytes));
-                        // Signal the main selector to handle the write
-                        SelectionKey key = replicaChannel.keyFor(SelectorRegistry.getSelector());
-                        if (key != null && key.isValid()) {
-                            key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
-                        }
-                    }
+        if (args.size() > 3) {
+            for (int i = 3; i < args.size(); i++) {
+                if ("px".equalsIgnoreCase(args.get(i)) && i + 1 < args.size()) {
+                    px = Long.parseLong(args.get(i + 1));
+                    i++; // Skip the value
                 }
-                // After queueing all writes, wake up the selector
-                SelectorRegistry.getSelector().wakeup();
             }
         }
 
-        return "+OK\r\n";
+        // --- 2. Data Storage ---
+        // This is executed by both Master and Replica
+        KeyValueStore.getInstance().set(key, value, px);
+
+        // --- 3. Role-Specific Logic ---
+        if (ServerConfig.isMaster()) {
+            // If we are the master, propagate the command to all online replicas.
+            propagateToReplicas(args);
+            // And send OK back to the original client.
+            return "+OK\r\n";
+        } else {
+            // If we are a replica, we have stored the data. We are done.
+            // DO NOT send a response back to the master.
+            return null;
+        }
+    }
+
+    private void propagateToReplicas(List<String> args) {
+        List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
+        if (replicas.isEmpty()) {
+            return;
+        }
+
+        // Build the command once to send to all replicas
+        byte[] commandBytes = RESPUtils.buildCommand(args);
+
+        for (ReplicaInfo replica : replicas) {
+            if (replica.getState() == ReplicaInfo.ReplicaState.ONLINE) {
+                // Add the command to the replica's non-blocking write queue
+                replica.getWriteQueue().add(ByteBuffer.wrap(commandBytes));
+
+                // Signal the main selector that this replica's channel has data to write
+                SocketChannel replicaChannel = replica.getChannel();
+                SelectionKey key = replicaChannel.keyFor(SelectorRegistry.getSelector());
+                if (key != null && key.isValid()) {
+                    // Use a synchronized block to safely modify interestOps from a different thread
+                    synchronized (key) {
+                        key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                    }
+                }
+            }
+        }
+        // After queueing all writes, wake up the main selector to process them
+        SelectorRegistry.getSelector().wakeup();
     }
 }
