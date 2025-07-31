@@ -1,85 +1,77 @@
+// In protocols/RESPParser.java
 package protocols;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 public class RESPParser {
-    private final String input;
-    private int pos = 0;
+    private final ByteBuffer buffer;
 
-    public RESPParser(String input) {
-        this.input = input;
+    public RESPParser(ByteBuffer buffer) {
+        this.buffer = buffer;
     }
 
-    public static List<String> parse(String input) {
-        if (input == null || input.isEmpty()) {
-            return new ArrayList<>();
+    public List<String> parse() {
+        if (!buffer.hasRemaining()) {
+            return null;
         }
-        return new RESPParser(input).parse();
-    }
+        buffer.mark(); // Mark the current position in case of incomplete command
+        char type = (char) buffer.get();
 
-    private List<String> parse() {
-        char type = readChar();
         if (type == '*') {
             return parseArray();
-        } else {
-            // Simple string command support for things like `redis-cli PING`
-            return parseSimpleCommand();
         }
-    }
 
-    private List<String> parseSimpleCommand() {
-        // Reset and read the whole line as a single command
-        pos = 0;
-        String line = readLine();
-        return new ArrayList<>(List.of(line.split(" ")));
+        // If we don't have a complete command, reset the buffer to the mark
+        buffer.reset();
+        return null;
     }
 
     private List<String> parseArray() {
-        int numArgs = readIntLine();
-        List<String> args = new ArrayList<>(numArgs);
-        for (int i = 0; i < numArgs; i++) {
-            char type = readChar();
-            if (type != '$') {
-                throw new IllegalStateException("Expected bulk string for array element, got " + type);
+        int numElements = parseInteger();
+        if (numElements == -1) {
+            return null; // Incomplete
+        }
+
+        List<String> result = new ArrayList<>(numElements);
+        for (int i = 0; i < numElements; i++) {
+            if (buffer.get() != '$') {
+                return null; // Protocol error or incomplete
             }
-            args.add(parseBulkString());
+            int len = parseInteger();
+            if (len == -1) {
+                return null; // Incomplete
+            }
+            if (buffer.remaining() < len + 2) { // +2 for \r\n
+                return null; // Incomplete
+            }
+            byte[] bulkStringBytes = new byte[len];
+            buffer.get(bulkStringBytes);
+            result.add(new String(bulkStringBytes, StandardCharsets.UTF_8));
+            // Consume trailing \r\n
+            buffer.get();
+            buffer.get();
         }
-        return args;
+        return result;
     }
 
-    private String parseBulkString() {
-        int length = readIntLine();
-        if (length == -1) {
-            return null;
+    private int parseInteger() {
+        StringBuilder sb = new StringBuilder();
+        char c;
+        while (buffer.hasRemaining()) {
+            c = (char) buffer.get();
+            if (c == '\r') {
+                if (buffer.hasRemaining() && (char) buffer.get() == '\n') {
+                    return Integer.parseInt(sb.toString());
+                } else {
+                    // Incomplete CRLF
+                    return -1;
+                }
+            }
+            sb.append(c);
         }
-        String bulkString = input.substring(pos, pos + length);
-        pos += length;
-        // Skip trailing CRLF
-        if (pos <= input.length() - 2 && input.charAt(pos) == '\r' && input.charAt(pos + 1) == '\n') {
-            pos += 2;
-        }
-        return bulkString;
-    }
-
-    private char readChar() {
-        return input.charAt(pos++);
-    }
-
-    private String readLine() {
-        int start = pos;
-        while (pos < input.length() && input.charAt(pos) != '\r') {
-            pos++;
-        }
-        String line = input.substring(start, pos);
-        // Skip CRLF
-        if (pos <= input.length() - 2 && input.charAt(pos) == '\r' && input.charAt(pos + 1) == '\n') {
-            pos += 2;
-        }
-        return line;
-    }
-
-    private int readIntLine() {
-        return Integer.parseInt(readLine());
+        return -1; // Incomplete
     }
 }
