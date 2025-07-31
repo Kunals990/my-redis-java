@@ -30,6 +30,7 @@ public class CommandRegistry {
             Map.entry("WAIT", new WAITcommand())
     );
 
+
     public static Command getCommand(String name) {
         return commandMap.get(name.toUpperCase());
     }
