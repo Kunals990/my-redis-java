@@ -112,7 +112,7 @@ public class ReplicaConnectionHandler implements Runnable {
         // The RDB file itself is terminated by a CRLF, but readNBytes does not consume it.
         // However, since we are moving to a line-based RESPParser next, this is fine.
         // For robustness, you could read len + 2 to consume the trailing CRLF, but it's not strictly necessary here.
-        in.readNBytes(len+2);
+        in.readNBytes(len);
         logger.info("Drained RDB payload of " + len + " bytes");
 
         // The handshake is now complete. The command replication loop will handle subsequent commands.
