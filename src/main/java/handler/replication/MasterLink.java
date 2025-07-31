@@ -11,6 +11,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -53,24 +54,54 @@ public class MasterLink {
     }
 
     public void handleRead(SelectionKey key) throws IOException {
-        int n = channel.read(readBuffer);
-        if (n == -1) {
+        int bytesRead = channel.read(readBuffer);
+        if (bytesRead == -1) {
             key.cancel();
             channel.close();
             return;
         }
         readBuffer.flip();
-        RESPParser parser = new RESPParser(readBuffer);
 
-        // Process all complete frames
         while (readBuffer.hasRemaining()) {
-            Object resp = parser.parse();
-            if (resp == null) break;
-            processResponse(key, resp);
+            readBuffer.mark();
+            byte lead = readBuffer.get();
+            readBuffer.reset();
+
+            if (lead == '+') {
+                // simple string: +LINE\r\n
+                String s = readSimpleString(readBuffer);
+                if (s == null) break;
+                processResponse(key, s);
+
+            } else if (lead == ':') {
+                // integer: :123\r\n — we don't really need these, skip them
+                if (!skipLine(readBuffer)) break;
+
+            } else if (lead == '*') {
+                // array
+                Object arrObj = new RESPParser(readBuffer).parse();
+                if (arrObj == null) break;
+                if (arrObj instanceof List) {
+                    List<String> arr = (List<String>) arrObj;
+                    processResponse(key, arr);
+                } else {
+                    break;
+                }
+
+            } else if (lead == '$') {
+                // bulk string: $LEN\r\n<data>\r\n
+                String bulk = readBulkString(readBuffer);
+                if (bulk == null) break;
+                processResponse(key, bulk);
+
+            } else {
+                // unknown / incomplete
+                break;
+            }
         }
+
         readBuffer.compact();
     }
-
     public void handleWrite(SelectionKey key) throws IOException {
         // Drain queued buffers
         while (!outbound.isEmpty()) {
@@ -157,5 +188,59 @@ public class MasterLink {
                 }
                 break;
         }
+    }
+
+    /** Read until CRLF and return the interior (no '+' or CRLF), or null if incomplete */
+    private String readSimpleString(ByteBuffer buf) {
+        StringBuilder sb = new StringBuilder();
+        if (!buf.hasRemaining()) return null;
+        buf.get(); // consume '+'
+        while (buf.hasRemaining()) {
+            char c = (char) buf.get();
+            if (c == '\r' && buf.hasRemaining() && (char) buf.get() == '\n') {
+                return sb.toString();
+            }
+            sb.append(c);
+        }
+        return null; // incomplete
+    }
+
+    /** Read a $-style bulk string, return its contents or null if incomplete */
+    private String readBulkString(ByteBuffer buf) {
+        // Read length
+        if (!buf.hasRemaining() || buf.get() != '$') return null;
+        Integer len = readIntCRLF(buf);
+        if (len == null) return null;
+        if (buf.remaining() < len + 2) return null; // not all data yet
+        byte[] data = new byte[len];
+        buf.get(data);
+        // consume trailing CRLF
+        buf.get(); buf.get();
+        return new String(data, StandardCharsets.UTF_8);
+    }
+
+    /** Read an integer until CRLF (no leading ':'), or null if incomplete */
+    private Integer readIntCRLF(ByteBuffer buf) {
+        StringBuilder sb = new StringBuilder();
+        while (buf.hasRemaining()) {
+            char c = (char) buf.get();
+            if (c == '\r' && buf.hasRemaining() && (char) buf.get() == '\n') {
+                try { return Integer.parseInt(sb.toString()); }
+                catch (NumberFormatException e) { return null; }
+            }
+            sb.append(c);
+        }
+        return null;
+    }
+
+    /** Skip until the next CRLF (for ints or any other line), return true if done, false if incomplete */
+    private boolean skipLine(ByteBuffer buf) {
+        while (buf.hasRemaining()) {
+            char c = (char) buf.get();
+            if (c == '\r' && buf.hasRemaining() && (char) buf.get() == '\n') {
+                return true;
+            }
+        }
+        return false;
     }
 }
