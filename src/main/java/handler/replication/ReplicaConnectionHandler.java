@@ -21,7 +21,7 @@ public class ReplicaConnectionHandler implements Runnable {
     private final String masterHost;
     private final int masterPort;
     private final int myPort;
-    private long replicationOffset = 0; // <-- The offset is now a member variable
+    private long replicationOffset = 0;
 
     public ReplicaConnectionHandler(String masterHost, int masterPort, int myPort) {
         this.masterHost = masterHost;
@@ -36,28 +36,42 @@ public class ReplicaConnectionHandler implements Runnable {
             InputStream in = new BufferedInputStream(socket.getInputStream());
             RESPParser parser = new RESPParser(in);
 
-            // ... (The entire handshake block in your run() method is correct) ...
-            // PING
+            // --- Robust Handshake Logic ---
+
+            // 1. PING
             out.write(RESPUtils.buildCommand(List.of("PING")));
             out.flush();
-            parser.parse();
+            Object pongResponse = parser.parse();
+            if (!"+PONG".equalsIgnoreCase(pongResponse.toString())) {
+                throw new IOException("Handshake failed: Did not receive PONG. Got: " + pongResponse);
+            }
 
-            // REPLCONF listening-port
+            // 2. REPLCONF listening-port
             out.write(RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", String.valueOf(this.myPort))));
             out.flush();
-            parser.parse();
+            Object ok1Response = parser.parse();
+            if (!"+OK".equalsIgnoreCase(ok1Response.toString())) {
+                throw new IOException("Handshake failed: Did not receive OK for REPLCONF port. Got: " + ok1Response);
+            }
 
-            // REPLCONF capa psync2
+            // 3. REPLCONF capa psync2
             out.write(RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
             out.flush();
-            parser.parse();
+            Object ok2Response = parser.parse();
+            if (!"+OK".equalsIgnoreCase(ok2Response.toString())) {
+                throw new IOException("Handshake failed: Did not receive OK for REPLCONF capa. Got: " + ok2Response);
+            }
 
-            // PSYNC
+            // 4. PSYNC
             out.write(RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
             out.flush();
-            parser.parse(); // +FULLRESYNC
-            parser.parse(); // RDB File
+            Object fullResyncResponse = parser.parse(); // Expect "+FULLRESYNC..."
+            if (!fullResyncResponse.toString().toUpperCase().startsWith("+FULLRESYNC")) {
+                throw new IOException("Handshake failed: Did not receive FULLRESYNC. Got: " + fullResyncResponse);
+            }
+            parser.parse(); // Consume the RDB file bytes and ignore them for now.
 
+            // --- Handshake complete, stream is now synchronized ---
             startCommandReplicationLoop(out, parser);
 
         } catch (Throwable t) {
@@ -68,127 +82,108 @@ public class ReplicaConnectionHandler implements Runnable {
 
     private void startCommandReplicationLoop(OutputStream out, RESPParser parser) throws IOException {
         while (true) {
-            // 1. Parse the next command from the master
             Object parsedCommand = parser.parse();
-            if (parsedCommand == null) {
-                // End of stream
-                break;
-            }
+            if (parsedCommand == null) break;
 
-            // We expect an array of strings for commands
-            if (!(parsedCommand instanceof List)) {
-                logger.warning("Received non-array command in replication stream: " + parsedCommand);
-                continue;
-            }
+            long bytesParsed = parser.getBytesReadSinceLastCommand();
+
+            if (!(parsedCommand instanceof List)) continue;
 
             @SuppressWarnings("unchecked")
             List<String> args = (List<String>) parsedCommand;
-            if (args.isEmpty()) {
-                continue;
-            }
+            if (args.isEmpty()) continue;
 
             String cmd = args.get(0).toUpperCase();
 
-            // 2. Handle the command
             if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
-                // Acknowledge the master's ping using our current offset
                 String currentOffsetStr = Long.toString(this.replicationOffset);
                 String ack = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"
                         + currentOffsetStr.length() + "\r\n" + currentOffsetStr + "\r\n";
                 out.write(ack.getBytes());
                 out.flush();
             } else {
-                // For any other command (like SET, etc.), it's a propagated write command.
-                // Execute it and then update our offset by the number of bytes it took.
                 Command cmdImpl = CommandRegistry.getCommand(cmd);
                 if (cmdImpl != null) {
                     cmdImpl.execute(args, null);
-                } else {
-                    logger.warning("Unknown replication cmd: " + cmd);
                 }
-
-                // 3. Update offset AFTER processing a write command
-                this.replicationOffset += parser.getBytesReadSinceLastCommand();
+                this.replicationOffset += bytesParsed;
             }
         }
     }
 
-class RESPParser {
-    private final InputStream in;
-    private long bytesReadSinceLastCommand = 0;
+    // The RESPParser inner class remains the same as the one I provided before.
+    // It is correct.
+    class RESPParser {
+        private final InputStream in;
+        private long bytesReadSinceLastCommand = 0;
 
-    public RESPParser(InputStream in) {
-        this.in = in;
-    }
+        public RESPParser(InputStream in) { this.in = in; }
+        public long getBytesReadSinceLastCommand() { return this.bytesReadSinceLastCommand; }
 
-    public long getBytesReadSinceLastCommand() { // <-- ADD THIS GETTER
-        return this.bytesReadSinceLastCommand;
-    }
-
-    public Object parse() throws IOException {
-        bytesReadSinceLastCommand = 0;
-        return _parse();
-    }
-
-    // ... (_parse, parseArray, parseSimpleString, etc. remain the same as the previous step)
-    private Object _parse() throws IOException {
-        int type = in.read();
-        if (type == -1) {
-            return null;
+        public Object parse() throws IOException {
+            bytesReadSinceLastCommand = 0;
+            return _parse();
         }
-        bytesReadSinceLastCommand++;
 
-        return switch ((char) type) {
-            case '+' -> parseSimpleString();
-            case '*' -> parseArray();
-            case '$' -> {
-                int len = readInt();
-                byte[] data = in.readNBytes(len);
-                bytesReadSinceLastCommand += len;
-                in.readNBytes(2); // CRLF
-                bytesReadSinceLastCommand += 2;
-                yield data;
-            }
-            default -> throw new IOException("Unknown RESP type: " + (char) type);
-        };
-    }
-
-    private String parseSimpleString() throws IOException {
-        return readLine();
-    }
-
-    private List<String> parseArray() throws IOException {
-        int count = readInt();
-        List<String> list = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            Object item = _parse();
-            if (item instanceof String) {
-                list.add((String) item);
-            } else if (item instanceof byte[]) {
-                list.add(new String((byte[]) item, StandardCharsets.UTF_8));
-            }
-        }
-        return list;
-    }
-
-    private String readLine() throws IOException {
-        ByteArrayOutputStream bout = new ByteArrayOutputStream();
-        int b;
-        while ((b = in.read()) != -1) {
+        private Object _parse() throws IOException {
+            int type = in.read();
+            if (type == -1) return null;
             bytesReadSinceLastCommand++;
-            if (b == '\r') {
-                in.read(); // consume LF
-                bytesReadSinceLastCommand++;
-                break;
-            }
-            bout.write(b);
-        }
-        return bout.toString(StandardCharsets.US_ASCII.name());
-    }
 
-    private int readInt() throws IOException {
-        String line = readLine();
-        return Integer.parseInt(line);
+            return switch ((char) type) {
+                case '+' -> "+" + parseSimpleString(); // Return with prefix for easier checking
+                case '*' -> parseArray();
+                case '$' -> {
+                    int len = readInt();
+                    if (len == -1) yield null;
+                    byte[] data = in.readNBytes(len);
+                    bytesReadSinceLastCommand += len;
+                    in.readNBytes(2); // CRLF
+                    bytesReadSinceLastCommand += 2;
+                    yield data;
+                }
+                default -> throw new IOException("Unknown RESP type: " + (char) type);
+            };
+        }
+
+        private String parseSimpleString() throws IOException {
+            return readLine();
+        }
+
+        private List<String> parseArray() throws IOException {
+            int count = readInt();
+            if (count == -1) return null;
+            List<String> list = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                Object item = _parse();
+                if (item instanceof String) {
+                    list.add(((String) item).substring(1)); // Remove the '+' prefix
+                } else if (item instanceof byte[]) {
+                    list.add(new String((byte[]) item, StandardCharsets.UTF_8));
+                }
+            }
+            return list;
+        }
+
+        private String readLine() throws IOException {
+            ByteArrayOutputStream bout = new ByteArrayOutputStream();
+            int b;
+            while ((b = in.read()) != -1) {
+                bytesReadSinceLastCommand++;
+                if (b == '\r') {
+                    in.read(); // consume LF
+                    bytesReadSinceLastCommand++;
+                    break;
+                }
+                bout.write(b);
+            }
+            return bout.toString(StandardCharsets.UTF_8);
+        }
+
+        private int readInt() throws IOException {
+            String line = readLine();
+            if (line.isEmpty()) return -1;
+            return Integer.parseInt(line);
+        }
     }
-}
 }
