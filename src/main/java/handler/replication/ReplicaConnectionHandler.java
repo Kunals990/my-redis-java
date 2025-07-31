@@ -32,155 +32,82 @@ public class ReplicaConnectionHandler implements Runnable {
         this.myPort = myPort;
     }
 
+
     @Override
     public void run() {
-        System.out.println("REPLICA: Connection handler thread started."); // <-- ADD THIS
         try (Socket socket = new Socket(masterHost, masterPort)) {
-            System.out.println("REPLICA: Socket connected to master at " + masterHost + ":" + masterPort); // <-- ADD THIS
-
             OutputStream out = socket.getOutputStream();
             InputStream in = new BufferedInputStream(socket.getInputStream());
 
-            completeHandShake1(out, in);
-            System.out.println("REPLICA: Handshake 1 (PING) complete."); // <-- ADD THIS
+            // Create ONE parser for the entire connection
+            RESPParser parser = new RESPParser(in);
 
-            completeHandShake2(out, in);
-            System.out.println("REPLICA: Handshake 2 (REPLCONF port) complete."); // <-- ADD THIS
+            // HANDSHAKE
+            // PING
+            out.write(RESPUtils.buildCommand(List.of("PING")));
+            out.flush();
+            String pong = (String) parser.parse();
+            if (!"PONG".equalsIgnoreCase(pong)) throw new IOException("Handshake failed, expected PONG");
 
-            completeHandShake3(out, in);
-            System.out.println("REPLICA: Handshake 3 (REPLCONF capa) complete."); // <-- ADD THIS
+            // REPLCONF listening-port
+            out.write(RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", String.valueOf(this.myPort))));
+            out.flush();
+            String ok1 = (String) parser.parse();
+            if (!"OK".equalsIgnoreCase(ok1)) throw new IOException("Handshake failed on REPLCONF port");
 
-            completeHandShake4(out, in);
-            System.out.println("REPLICA: Handshake 4 (PSYNC) complete."); // <-- ADD THIS
+            // REPLCONF capa psync2
+            out.write(RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
+            out.flush();
+            String ok2 = (String) parser.parse();
+            if (!"OK".equalsIgnoreCase(ok2)) throw new IOException("Handshake failed on REPLCONF capa");
 
-            startCommandReplicationLoop(out, in);
+            // PSYNC
+            out.write(RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
+            out.flush();
+            String fullResync = (String) parser.parse(); // Should be +FULLRESYNC...
+            byte[] rdbFile = (byte[]) parser.parse();    // Should be the RDB file bytes
 
-        } catch (Throwable t) { // <-- CATCH THROWABLE, NOT JUST IOEXCEPTION
-            // This will catch any and all errors and print a full stack trace.
+            // MAIN COMMAND LOOP
+            startCommandReplicationLoop(out, parser); // Pass the parser, not the streams
+
+        } catch (Throwable t) {
             System.out.println("REPLICA: CRITICAL ERROR IN REPLICA THREAD");
             t.printStackTrace(System.out);
         }
     }
 
-    private void completeHandShake1(OutputStream out, InputStream in) throws IOException {
-        List<String> req = List.of("PING");
-        out.write(RESPUtils.buildCommand(req));
-        out.flush();
 
-        byte[] buf = new byte[1024];
-        int n = in.read(buf);
-        String resp = RESPResponseParser.parseSimpleString(buf, n);
-        if (!"PONG".equalsIgnoreCase(resp)) {
-            throw new IOException("Handshake1 failed, expected PONG, got: " + resp);
-        }
-    }
 
-    private void completeHandShake2(OutputStream out, InputStream in) throws IOException {
-        List<String> req = List.of("REPLCONF", "listening-port", String.valueOf(this.myPort));
-        out.write(RESPUtils.buildCommand(req));
-        out.flush();
-
-        byte[] buf = new byte[1024];
-        int n = in.read(buf);
-        String resp = RESPResponseParser.parseSimpleString(buf, n);
-        if (!"OK".equalsIgnoreCase(resp)) {
-            throw new IOException("Handshake2 failed, expected OK, got: " + resp);
-        }
-    }
-
-    private void completeHandShake3(OutputStream out, InputStream in) throws IOException {
-        List<String> req = List.of("REPLCONF", "capa", "psync2");
-        out.write(RESPUtils.buildCommand(req));
-        out.flush();
-
-        byte[] buf = new byte[1024];
-        int n = in.read(buf);
-        String resp = RESPResponseParser.parseSimpleString(buf, n);
-        if (!"OK".equalsIgnoreCase(resp)) {
-            throw new IOException("Handshake3 failed, expected OK, got: " + resp);
-        }
-    }
-
-    private void completeHandShake4(OutputStream out, InputStream in) throws IOException {
-        // Send PSYNC ? -1
-        List<String> req = List.of("PSYNC", "?", "-1");
-        out.write(RESPUtils.buildCommand(req));
-        out.flush();
-
-        // Log what is read for the FULLRESYNC line
-        String fullResyncResponse = readLine(in);
-        System.out.println("REPLICA READ LINE: " + fullResyncResponse);
-        if (!fullResyncResponse.startsWith("+FULLRESYNC")) {
-            throw new IOException("Handshake4 failed, expected +FULLRESYNC, got: " + fullResyncResponse);
-        }
-
-        // Log the RDB header read
-        int dollar = in.read();
-        System.out.println("REPLICA READ CHAR: " + (char)dollar);
-        if (dollar != '$') {
-            throw new IOException("Expected '$' for RDB bulk, got: " + (char)dollar);
-        }
-        String lenLine = readLine(in);
-        System.out.println("REPLICA READ LINE: " + lenLine);
-        int len = Integer.parseInt(lenLine);
-        System.out.println("REPLICA PARSED RDB LENGTH: " + len);
-
-        // This is the corrected, robust way to read exactly 'len' bytes
-        byte[] rdbBuffer = new byte[len];
-        int totalBytesRead = 0;
-        while (totalBytesRead < len) {
-            int bytesRead = in.read(rdbBuffer, totalBytesRead, len - totalBytesRead);
-            if (bytesRead == -1) {
-                throw new IOException("Unexpected end of stream while reading RDB payload.");
-            }
-            totalBytesRead += bytesRead;
-        }
-        System.out.println("REPLICA ATTEMPTED TO READ " + len + " RDB BYTES, ACTUALLY READ: " + totalBytesRead);
-
-        // The handshake is now complete. The stream is correctly positioned.
-    }
-
-    private String readLine(InputStream in) throws IOException {
-        ByteArrayOutputStream bout = new ByteArrayOutputStream();
-        int b;
-        while ((b = in.read()) != -1) {
-            if (b == '\r') {
-                int nl = in.read();
-                if (nl != '\n') throw new IOException("Expected LF after CR");
-                break;
-            }
-            bout.write(b);
-        }
-        return bout.toString(StandardCharsets.US_ASCII.name());
-    }
-
-    private void startCommandReplicationLoop(OutputStream out, InputStream in) throws IOException {
-        RESPParser parser = new RESPParser(in);
+    private void startCommandReplicationLoop(OutputStream out, RESPParser parser) throws IOException {
         while (true) {
-            long offset = ReplicaConfig.getOffset();
-            List<String> args = parser.parseArray();
+            // Use the single parser to read the next command
+            List<String> args = (List<String>) parser.parse();
             if (args == null || args.isEmpty()) continue;
 
             String cmd = args.get(0).toUpperCase();
 
-            if ("REPLCONF".equals(cmd)
-                    && args.size() == 3
-                    && "GETACK".equalsIgnoreCase(args.get(1))
-                    && "*".equals(args.get(2))) {
+            // Note: We only increment the offset for write commands that are propagated
+            // The logic to decide this should be within the command handlers themselves.
+            // For now, let's assume we increment for all non-REPLCONF commands.
+            if (!cmd.equals("REPLCONF")) {
+                parser.recordOffset();
+            }
 
-                String off = Long.toString(offset);
+            if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
+                // Your existing GETACK handling logic is correct
+                long currentOffset = ReplicaConfig.getOffset();
+                String off = Long.toString(currentOffset);
                 String ack = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"
                         + off.length() + "\r\n" + off + "\r\n";
                 out.write(ack.getBytes());
                 out.flush();
-                continue;
-            }
-
-            Command cmdImpl = CommandRegistry.getCommand(cmd);
-            if (cmdImpl != null) {
-                cmdImpl.execute(args, null);
             } else {
-                logger.warning("Unknown replication cmd: " + cmd);
+                Command cmdImpl = CommandRegistry.getCommand(cmd);
+                if (cmdImpl != null) {
+                    cmdImpl.execute(args, null);
+                } else {
+                    logger.warning("Unknown replication cmd: " + cmd);
+                }
             }
         }
     }
@@ -188,47 +115,88 @@ public class ReplicaConnectionHandler implements Runnable {
 
 class RESPParser {
     private final InputStream in;
-    private long bytesRead = 0;
+    private long bytesReadSinceLastCommand = 0;
 
     public RESPParser(InputStream in) {
         this.in = in;
     }
 
-    public List<String> parseArray() throws IOException {
-        bytesRead = 0;
+    /**
+     * Public-facing parse method. This is the entry point for parsing a new command.
+     * It resets the byte counter and calls the internal parser.
+     */
+    public Object parse() throws IOException {
+        bytesReadSinceLastCommand = 0; // Reset counter for a new command
+        return _parse(); // Call the internal parser
+    }
 
-        int b = in.read(); bytesRead++;
-        if (b == -1 || b != '*') return null;
+    /**
+     * Internal parser. Does the actual work without resetting the counter.
+     * Used for recursive calls.
+     */
+    private Object _parse() throws IOException {
+        int type = in.read();
+        if (type == -1) {
+            return null;
+        }
+        bytesReadSinceLastCommand++;
 
+        return switch ((char) type) {
+            case '+' -> parseSimpleString();
+            case '*' -> parseArray();
+            case '$' -> {
+                int len = readInt();
+                byte[] data = in.readNBytes(len);
+                bytesReadSinceLastCommand += len;
+                in.readNBytes(2); // CRLF
+                bytesReadSinceLastCommand += 2;
+                yield data; // Return raw bytes for RDB file
+            }
+            default -> throw new IOException("Unknown RESP type: " + (char) type);
+        };
+    }
+
+    private String parseSimpleString() throws IOException {
+        return readLine();
+    }
+
+    private List<String> parseArray() throws IOException {
         int count = readInt();
-
         List<String> list = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            int type = in.read(); bytesRead++;
-            if (type != '$') throw new IOException("Expected '$' but got " + (char)type);
-            int len = readInt();
-            byte[] data = in.readNBytes(len); bytesRead += len;
-            in.readNBytes(2); bytesRead += 2;
-            list.add(new String(data, StandardCharsets.UTF_8));
+            // IMPORTANT: The recursive call is to the internal _parse()
+            Object item = _parse();
+            if (item instanceof String) {
+                list.add((String) item);
+            } else if (item instanceof byte[]) {
+                list.add(new String((byte[]) item, StandardCharsets.UTF_8));
+            }
         }
-        ReplicaConfig.incrOffset(bytesRead);
         return list;
     }
 
+    // Call this after processing a write command
+    public void recordOffset() {
+        ReplicaConfig.incrOffset(bytesReadSinceLastCommand);
+    }
 
-    private int readInt() throws IOException {
-        int result = 0;
+    private String readLine() throws IOException {
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
         int b;
         while ((b = in.read()) != -1) {
-            bytesRead++;
+            bytesReadSinceLastCommand++;
             if (b == '\r') {
-                in.read(); bytesRead++;
+                in.read(); // consume LF
+                bytesReadSinceLastCommand++;
                 break;
             }
-            if (b < '0' || b > '9') throw new IOException("Invalid digit in length: " + b);
-            result = result * 10 + (b - '0');
+            bout.write(b);
         }
-        if (b == -1) throw new IOException("Unexpected EOF reading length");
-        return result;
+        return bout.toString(StandardCharsets.US_ASCII.name());
+    }
+
+    private int readInt() throws IOException {
+        String line = readLine();
+        return Integer.parseInt(line);
     }
 }
