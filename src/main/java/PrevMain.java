@@ -1,4 +1,5 @@
 import config.ServerConfig;
+import handler.BlockedClientTimeoutChecker;
 import handler.CommandHandler;
 import handler.SelectorRegistry;
 import handler.WaitClientTimeoutChecker;
@@ -17,10 +18,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 
-public class Main {
+public class PrevMain {
+
     private static final Map<SocketChannel, ByteBuffer> clientBuffers = new ConcurrentHashMap<>();
-    private static MasterConnectionHandler masterConnectionHandler = null;
 
     public static void main(String[] args) throws IOException {
         int port = 6379;
@@ -50,16 +52,19 @@ public class Main {
 
         if (masterHost != null && masterPort != -1) {
             ServerConfig.setRole("slave");
-            // Instead of a thread, create a handler that uses our main selector
-            masterConnectionHandler = new MasterConnectionHandler(masterHost, masterPort, port, selector);
+            ServerConfig.setMaster_host(masterHost);
+            ServerConfig.setMaster_port(String.valueOf(masterPort));
+            ReplicaConnectionHandler replicaHandler = new ReplicaConnectionHandler(masterHost, masterPort, port);
+            Executors.newSingleThreadExecutor().submit(replicaHandler);
         } else {
             ServerConfig.setRole("master");
         }
 
         if (ServerConfig.isMaster()) {
+//            new Thread(new GetAckBroadcaster()).start();
             new Thread(new WaitClientTimeoutChecker()).start();
         }
-        // Other background threads can be added as needed
+        new Thread(new BlockedClientTimeoutChecker()).start();
 
         while (true) {
             selector.select();
@@ -69,59 +74,45 @@ public class Main {
             while (iter.hasNext()) {
                 SelectionKey key = iter.next();
                 iter.remove();
-                if (!key.isValid()) continue;
+
+                if (!key.isValid()) {
+                    continue;
+                }
 
                 try {
                     if (key.isAcceptable()) {
-                        handleAcceptable(key, selector);
-                    }
-                    if (key.isConnectable()) {
-                        // This is for our replica connection to the master
-                        ((MasterConnectionHandler) key.attachment()).handleConnect(key);
+                        ServerSocketChannel server = (ServerSocketChannel) key.channel();
+                        SocketChannel clientChannel = server.accept();
+                        if (clientChannel != null) {
+                            clientChannel.configureBlocking(false);
+                            clientChannel.register(selector, SelectionKey.OP_READ);
+                            clientBuffers.put(clientChannel, ByteBuffer.allocate(1024));
+                            System.out.println("Accepted new client: " + clientChannel.getRemoteAddress());
+                        }
                     }
                     if (key.isReadable()) {
-                        // Check if this is the master connection or a regular client
-                        if (key.attachment() instanceof MasterConnectionHandler) {
-                            ((MasterConnectionHandler) key.attachment()).handleRead(key);
-                        } else {
-                            handleClientRead(key);
-                        }
+                        handleReadableKey(key);
                     }
                     if (key.isWritable()) {
-                        // Check if this is the master connection or a replica connection
-                        if (key.attachment() instanceof MasterConnectionHandler) {
-                            ((MasterConnectionHandler) key.attachment()).handleWrite(key);
-                        } else {
-                            handleReplicaWrite(key);
-                        }
+                        handleWritableKey(key);
                     }
                 } catch (IOException e) {
                     System.err.println("IOException, closing connection: " + e.getMessage());
-                    cleanupConnection(key);
+                    cleanupClient(key);
                 }
             }
         }
     }
 
-    private static void handleAcceptable(SelectionKey key, Selector selector) throws IOException {
-        ServerSocketChannel server = (ServerSocketChannel) key.channel();
-        SocketChannel clientChannel = server.accept();
-        if (clientChannel != null) {
-            clientChannel.configureBlocking(false);
-            clientChannel.register(selector, SelectionKey.OP_READ);
-            clientBuffers.put(clientChannel, ByteBuffer.allocate(1024));
-            System.out.println("Accepted new client: " + clientChannel.getRemoteAddress());
-        }
-    }
-
-    private static void handleClientRead(SelectionKey key) throws IOException {
+    private static void handleReadableKey(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
         ByteBuffer buffer = clientBuffers.get(clientChannel);
         if (buffer == null) return;
 
         int bytesRead = clientChannel.read(buffer);
         if (bytesRead == -1) {
-            cleanupConnection(key);
+            System.out.println("Client disconnected cleanly.");
+            cleanupClient(key);
             return;
         }
 
@@ -142,14 +133,17 @@ public class Main {
         buffer.compact();
     }
 
-    private static void handleReplicaWrite(SelectionKey key) throws IOException {
+    private static void handleWritableKey(SelectionKey key) throws IOException {
         SocketChannel channel = (SocketChannel) key.channel();
         ReplicaInfo replica = ReplicaManager.getReplicaByChannel(channel);
+
         if (replica != null) {
             ByteBuffer buffer;
             while ((buffer = replica.getWriteQueue().peek()) != null) {
                 channel.write(buffer);
-                if (buffer.hasRemaining()) return;
+                if (buffer.hasRemaining()) {
+                    return;
+                }
                 replica.getWriteQueue().poll();
             }
             if (replica.getWriteQueue().isEmpty()) {
@@ -158,14 +152,14 @@ public class Main {
         }
     }
 
-    private static void cleanupConnection(SelectionKey key) {
+    private static void cleanupClient(SelectionKey key) {
+        SocketChannel clientChannel = (SocketChannel) key.channel();
         try {
-            SocketChannel channel = (SocketChannel) key.channel();
-            clientBuffers.remove(channel);
+            clientBuffers.remove(clientChannel);
             key.cancel();
-            channel.close();
+            clientChannel.close();
         } catch (IOException e) {
-            System.err.println("Error during cleanup: " + e.getMessage());
+            System.err.println("Error during client cleanup: " + e.getMessage());
         }
     }
 }
