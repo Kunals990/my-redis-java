@@ -25,7 +25,7 @@ public class MasterLink {
     private final Deque<ByteBuffer> outbound = new ArrayDeque<>();
 
     private enum HandshakeState {
-        PING, REPLCONF_PORT, REPLCONF_CAPA, ONLINE
+        PING, REPLCONF_PORT, REPLCONF_CAPA, PSYNC, RECEIVING_RDB, ONLINE
     }
     private HandshakeState state = HandshakeState.PING;
 
@@ -119,62 +119,77 @@ public class MasterLink {
 
             case REPLCONF_CAPA:
                 if (resp instanceof String && "OK".equals(resp)) {
-                    // Next incoming message will be +FULLRESYNC
+                    state = HandshakeState.PSYNC;
                     enqueue(key, RESPUtils.buildCommand(
                             List.of("PSYNC", "?", "-1")));
+                }
+                break;
+
+            case PSYNC:
+                if (resp instanceof String && ((String) resp).startsWith("+FULLRESYNC")) {
+                    String[] parts = ((String) resp).split(" ");
+                    replicationId = parts[1];
+                    replicationOffset = Long.parseLong(parts[2]);
+                    state = HandshakeState.RECEIVING_RDB;
+                }
+                break;
+
+            case RECEIVING_RDB:
+                // When we receive the RDB file (as byte array)
+                if (resp instanceof byte[]) {
+                    // Process RDB file here if needed
                     state = HandshakeState.ONLINE;
+                    System.out.println("Replica is now ONLINE.");
+
+                    // Send initial ACK immediately after processing RDB
+                    byte[] ackCommand = RESPUtils.buildCommand(
+                            List.of("REPLCONF", "ACK", String.valueOf(replicationOffset)));
+                    enqueue(key, ackCommand);
                 }
                 break;
 
             case ONLINE:
-                // Process FULLRESYNC response after we've sent PSYNC
-                if (resp instanceof String && ((String) resp).startsWith("+FULLRESYNC")) {
-                    String[] parts = ((String) resp).split(" ");
-                    replicationOffset = Long.parseLong(parts[2]);
-                    System.out.println("Replica is now ONLINE.");
-                    byte[] initAck = RESPUtils.buildCommand(
-                            List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
-                    System.out.println("[slave] → QUEUEING initial \"" + new String(initAck, StandardCharsets.UTF_8).trim() + "\"");
-                    enqueue(key, initAck);
-                }
-                // Handle PING commands from master
-                else if (resp instanceof String && "PING".equals(resp)) {
-                    // PING is sent as "*1\r\n$4\r\nPING\r\n" (14 bytes)
-                    replicationOffset += 14;
-                    Command c = CommandRegistry.getCommand("PING");
-                    if (c != null) c.execute(List.of("PING"), null);
-                }
-                // Handle REPLCONF GETACK
-                else if (resp instanceof List) {
+                if (resp instanceof List) {
                     @SuppressWarnings("unchecked")
                     List<String> args = (List<String>) resp;
+                    String cmd = args.get(0).toUpperCase();
+
+                    // Calculate bytes received for this command
                     int cmdSize = calculateRespCommandSize(args);
                     replicationOffset += cmdSize;
 
-                    String cmd = args.get(0).toUpperCase();
-                    if ("REPLCONF".equals(cmd) && args.size() > 1 && "GETACK".equalsIgnoreCase(args.get(1))) {
-                        byte[] ackCmd = RESPUtils.buildCommand(
-                                List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
-                        System.out.println("[slave] → QUEUEING \"" + new String(ackCmd, StandardCharsets.UTF_8).trim() + "\"");
-                        enqueue(key, ackCmd);
+                    if ("REPLCONF".equals(cmd) && args.size() > 1 && "GETACK".equals(args.get(1))) {
+                        // Respond to GETACK with current offset
+                        byte[] ackCommand = RESPUtils.buildCommand(
+                                List.of("REPLCONF", "ACK", String.valueOf(replicationOffset)));
+                        enqueue(key, ackCommand);
                     } else {
+                        // Process normal command
                         Command c = CommandRegistry.getCommand(cmd);
                         if (c != null) c.execute(args, null);
+                    }
+                } else if (resp instanceof String) {
+                    // Handle simple string commands (like PING)
+                    String cmd = (String) resp;
+                    // Add length of command in RESP format: +PING\r\n
+                    replicationOffset += 2 + cmd.length() + 2;
+
+                    if ("PING".equals(cmd)) {
+                        Command c = CommandRegistry.getCommand("PING");
+                        if (c != null) c.execute(List.of("PING"), null);
                     }
                 }
                 break;
         }
     }
 
-    // Helper method to calculate the size of a RESP command
+    // Calculate the size of a RESP command
     private int calculateRespCommandSize(List<String> args) {
-        // Calculate the size of "*<count>\r\n"
-        int size = 1 + String.valueOf(args.size()).length() + 2;
+        int size = 1 + String.valueOf(args.size()).length() + 2; // *<count>\r\n
 
-        // Add size of each argument
         for (String arg : args) {
-            // Size of "$<len>\r\n<data>\r\n"
-            size += 1 + String.valueOf(arg.length()).length() + 2 + arg.length() + 2;
+            size += 1 + String.valueOf(arg.length()).length() + 2; // $<len>\r\n
+            size += arg.length() + 2; // <data>\r\n
         }
 
         return size;
