@@ -2,6 +2,8 @@ package handler.commands;
 
 import config.ServerConfig;
 import handler.Command;
+import handler.replication.ReplicaInfo;
+import handler.replication.ReplicaManager;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -17,11 +19,15 @@ public class PSYNCcommand implements Command {
         String replicationId = ServerConfig.getMaster_replid();
         String fullResync = "+FULLRESYNC " + replicationId + " 0\r\n";
 
-        // Log and write FULLRESYNC, ensuring it's fully sent
-        System.out.println("MASTER SENDING: " + fullResync.replace("\r\n", "\\r\\n"));
         fullyWrite(clientChannel, ByteBuffer.wrap(fullResync.getBytes()));
-
         sendEmptyRDB(clientChannel);
+
+        // After handshake is sent, update the replica's state to ONLINE
+        ReplicaInfo replica = ReplicaManager.getReplicaByChannel(clientChannel);
+        if (replica != null) {
+            replica.setState(ReplicaInfo.ReplicaState.ONLINE);
+            System.out.println("Replica at port " + replica.getListeningPort() + " is now ONLINE.");
+        }
 
         return null;
     }

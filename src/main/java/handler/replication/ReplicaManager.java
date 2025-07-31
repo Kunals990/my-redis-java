@@ -1,5 +1,6 @@
 package handler.replication;
 
+import java.io.IOException;
 import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -10,7 +11,13 @@ public class ReplicaManager {
 
     public static void addReplica(SocketChannel channel, int listeningPort) {
         replicas.add(new ReplicaInfo(channel, listeningPort));
-//        System.out.println("[ReplicaManager] Added replica on port: " + listeningPort);
+        try {
+            // Tell the listener to start watching this new replica for ACKs
+            ReplicaAckListener.getInstance().registerNewReplica(channel);
+        } catch (IOException e) {
+            System.err.println("Failed to register new replica with ACK listener");
+            e.printStackTrace();
+        }
     }
 
     public static List<ReplicaInfo> getReplicas() {
