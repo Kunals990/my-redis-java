@@ -72,41 +72,50 @@ public class ReplicaConnectionHandler implements Runnable {
 
     private void startCommandReplicationLoop(OutputStream out, RESPParser parser) throws IOException {
         while (true) {
+            // 1. Parse the next command from the master
             Object parsedCommand = parser.parse();
-            if (parsedCommand == null) continue;
+            if (parsedCommand == null) {
+                // End of stream
+                break;
+            }
 
-            // Get the number of bytes read for the last command
-            long bytesParsed = parser.getBytesReadSinceLastCommand();
+            // We expect an array of strings for commands
+            if (!(parsedCommand instanceof List)) {
+                logger.warning("Received non-array command in replication stream: " + parsedCommand);
+                continue;
+            }
 
             @SuppressWarnings("unchecked")
             List<String> args = (List<String>) parsedCommand;
-            if (args.isEmpty()) continue;
+            if (args.isEmpty()) {
+                continue;
+            }
 
             String cmd = args.get(0).toUpperCase();
 
-            // Only increment the offset for write commands propagated from the master
-            if (!cmd.equals("REPLCONF")) {
-                this.replicationOffset += bytesParsed;
-            }
-
+            // 2. Handle the command
             if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
-                // Use the local offset now
-                String off = Long.toString(this.replicationOffset);
+                // Acknowledge the master's ping using our current offset
+                String currentOffsetStr = Long.toString(this.replicationOffset);
                 String ack = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$"
-                        + off.length() + "\r\n" + off + "\r\n";
+                        + currentOffsetStr.length() + "\r\n" + currentOffsetStr + "\r\n";
                 out.write(ack.getBytes());
                 out.flush();
             } else {
+                // For any other command (like SET, etc.), it's a propagated write command.
+                // Execute it and then update our offset by the number of bytes it took.
                 Command cmdImpl = CommandRegistry.getCommand(cmd);
                 if (cmdImpl != null) {
                     cmdImpl.execute(args, null);
                 } else {
                     logger.warning("Unknown replication cmd: " + cmd);
                 }
+
+                // 3. Update offset AFTER processing a write command
+                this.replicationOffset += parser.getBytesReadSinceLastCommand();
             }
         }
     }
-}
 
 class RESPParser {
     private final InputStream in;
