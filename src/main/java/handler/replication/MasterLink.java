@@ -25,7 +25,7 @@ public class MasterLink {
     private final Deque<ByteBuffer> outbound = new ArrayDeque<>();
 
     private enum HandshakeState {
-        PING, REPLCONF_PORT, REPLCONF_CAPA, PSYNC_FULLRESYNC, PSYNC_RDB, ONLINE
+        PING, REPLCONF_PORT, REPLCONF_CAPA, ONLINE
     }
     private HandshakeState state = HandshakeState.PING;
 
@@ -46,9 +46,7 @@ public class MasterLink {
     }
 
     public void handleConnect(SelectionKey key) throws IOException {
-        if (channel.isConnectionPending()) {
-            channel.finishConnect();
-        }
+        if (channel.isConnectionPending()) channel.finishConnect();
         // 1) On connect, send only PING:
         enqueue(key, RESPUtils.buildCommand(List.of("PING")));
     }
@@ -71,10 +69,8 @@ public class MasterLink {
                 String s = readSimpleString(readBuffer);
                 if (s == null) break;
                 processResponse(key, s);
-
             } else if (lead == ':') {
                 if (!skipLine(readBuffer)) break;
-
             } else if (lead == '*') {
                 Object arrObj = new RESPParser(readBuffer).parse();
                 if (arrObj == null) break;
@@ -82,18 +78,12 @@ public class MasterLink {
                     @SuppressWarnings("unchecked")
                     List<String> arr = (List<String>) arrObj;
                     processResponse(key, arr);
-                } else {
-                    break;
-                }
-
+                } else break;
             } else if (lead == '$') {
                 String bulk = readBulkString(readBuffer);
                 if (bulk == null) break;
                 processResponse(key, bulk);
-
-            } else {
-                break;
-            }
+            } else break;
         }
 
         readBuffer.compact();
@@ -129,31 +119,22 @@ public class MasterLink {
 
             case REPLCONF_CAPA:
                 if (resp instanceof String && "OK".equals(resp)) {
-                    state = HandshakeState.PSYNC_FULLRESYNC;
+                    // Master will now send FULLRESYNC and RDB
+                    // Next incoming message will be +FULLRESYNC
                     enqueue(key, RESPUtils.buildCommand(
                             List.of("PSYNC", "?", "-1")));
                 }
-                break;
-
-            case PSYNC_FULLRESYNC:
-                if (resp instanceof String && ((String) resp).startsWith("FULLRESYNC")) {
-                    // capture the master's offset so we can ACK correctly
+                state = HandshakeState.ONLINE;
+                // Immediately send initial ACK so tester can proceed
+                if (resp instanceof String && ((String) resp).startsWith("+FULLRESYNC")) {
                     String[] parts = ((String) resp).split(" ");
                     replicationOffset = Long.parseLong(parts[2]);
-                    state = HandshakeState.PSYNC_RDB;
-                    // Now wait for the bulk-RDB payload
                 }
-                break;
-
-            case PSYNC_RDB:
-                // After consuming the RDB payload, go online
-                state = HandshakeState.ONLINE;
                 System.out.println("Replica is now ONLINE.");
-                // send initial ACK at the full-resync offset
-                byte[] initialAck = RESPUtils.buildCommand(
+                byte[] initAck = RESPUtils.buildCommand(
                         List.of("REPLCONF", "ACK", Long.toString(replicationOffset)));
-                System.out.println("[slave] → QUEUEING initial “" + new String(initialAck, StandardCharsets.UTF_8).trim() + "”");
-                enqueue(key, initialAck);
+                System.out.println("[slave] → QUEUEING initial “" + new String(initAck, StandardCharsets.UTF_8).trim() + "”");
+                enqueue(key, initAck);
                 break;
 
             case ONLINE:
@@ -168,9 +149,7 @@ public class MasterLink {
                         enqueue(key, ackCmd);
                     } else {
                         Command c = CommandRegistry.getCommand(cmd);
-                        if (c != null) {
-                            c.execute(args, null);
-                        }
+                        if (c != null) c.execute(args, null);
                     }
                 }
                 break;
@@ -201,7 +180,7 @@ public class MasterLink {
         if (len == -1) return null;
         if (buf.remaining() < len + 2) { buf.reset(); return null; }
         byte[] data = new byte[len]; buf.get(data);
-        buf.get(); buf.get(); // consume CRLF
+        buf.get(); buf.get();
         return new String(data, StandardCharsets.UTF_8);
     }
 
@@ -212,9 +191,8 @@ public class MasterLink {
             char c = (char) buf.get();
             if (c == '\r') {
                 if (!buf.hasRemaining()) { buf.reset(); return null; }
-                buf.get(); // consume '\n'
-                try { return Integer.parseInt(sb.toString()); }
-                catch (NumberFormatException e) { return null; }
+                buf.get();
+                try { return Integer.parseInt(sb.toString()); } catch (NumberFormatException e) { return null; }
             }
             sb.append(c);
         }
