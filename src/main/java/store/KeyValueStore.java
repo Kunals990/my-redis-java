@@ -16,8 +16,8 @@ public class KeyValueStore {
         return INSTANCE;
     }
 
-    // Use 'long' for expiry to match the SET PX command
     public void set(String key, String value, long expiryMs) {
+        System.out.println("in keyval");
         Instant setTime = Instant.now();
         store.put(key, new ValueWithExpiry(value, expiryMs, setTime));
     }
@@ -28,7 +28,6 @@ public class KeyValueStore {
             return null;
         }
 
-        // isExpired() check will handle expiry logic.
         if (pair.isExpired()) {
             // In a concurrent map, 'remove' can be called safely.
             store.remove(key, pair); // More robust concurrent removal

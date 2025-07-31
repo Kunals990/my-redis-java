@@ -31,7 +31,9 @@ public class SetCommand implements Command {
                 }
             }
         }
+        System.out.println("before keyval");
         KeyValueStore.getInstance().set(key, value, px);
+        System.out.println("after keyval");
 
         if (ServerConfig.isMaster()) {
             propagateToReplicas(args);
