@@ -135,6 +135,7 @@ public class ReplicaConnectionHandler implements Runnable {
             if (args == null || args.isEmpty()) continue;
 
             String cmd = args.get(0).toUpperCase();
+
             if ("REPLCONF".equals(cmd)
                     && args.size() == 3
                     && "GETACK".equalsIgnoreCase(args.get(1))
