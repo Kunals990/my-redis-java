@@ -18,6 +18,7 @@ public class SetCommand implements Command {
         if (args.size() < 3) {
             return "-ERR wrong number of arguments for 'set'\r\n";
         }
+        System.out.println("In replica"+args);
         final String key = args.get(1);
         final String value = args.get(2);
         long px = -1;
