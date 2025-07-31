@@ -48,8 +48,6 @@ public class GetAckBroadcaster implements Runnable {
                         // Queue the GETACK command
                         replica.getWriteQueue().add(ByteBuffer.wrap(getAckBytes));
 
-                        // IMPORTANT: Update the activity time so we don't spam it
-                        replica.setLastActivityTime(System.currentTimeMillis());
 
                         // Signal the main selector
                         SelectionKey key = replicaChannel.keyFor(selector);
