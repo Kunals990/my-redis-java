@@ -37,6 +37,7 @@ public class MasterLink {
         this.channel.connect(new InetSocketAddress(host, port));
     }
 
+    /** Queue up a frame and wake the selector so handleWrite will fire. */
     private void enqueue(SelectionKey key, byte[] data) {
         outbound.add(ByteBuffer.wrap(data));
         key.interestOps(SelectionKey.OP_WRITE);
@@ -47,19 +48,13 @@ public class MasterLink {
         if (channel.isConnectionPending()) {
             channel.finishConnect();
         }
-        System.out.println("Replica connected to master. Starting handshake.");
-
-        // Pipeline the full handshake in one go:
+        // 1) On connect, send only PING:
         enqueue(key, RESPUtils.buildCommand(List.of("PING")));
-        enqueue(key, RESPUtils.buildCommand(
-                List.of("REPLCONF", "listening-port", String.valueOf(myPort))));
-        enqueue(key, RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
-        enqueue(key, RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
     }
 
     public void handleRead(SelectionKey key) throws IOException {
-        int bytesRead = channel.read(readBuffer);
-        if (bytesRead == -1) {
+        int n = channel.read(readBuffer);
+        if (n == -1) {
             key.cancel();
             channel.close();
             return;
@@ -67,64 +62,90 @@ public class MasterLink {
         readBuffer.flip();
         RESPParser parser = new RESPParser(readBuffer);
 
+        // Process all complete frames
         while (readBuffer.hasRemaining()) {
-            Object parsed = parser.parse();
-            if (parsed == null) break;
-            processResponse(key, parsed);
+            Object resp = parser.parse();
+            if (resp == null) break;
+            processResponse(key, resp);
         }
         readBuffer.compact();
     }
 
     public void handleWrite(SelectionKey key) throws IOException {
-        // Drain any queued outbound buffers
+        // Drain queued buffers
         while (!outbound.isEmpty()) {
-            ByteBuffer buf = outbound.peek();
-            channel.write(buf);
-            if (buf.hasRemaining()) {
-                // socket not ready for more, leave OP_WRITE set
+            ByteBuffer b = outbound.peek();
+            channel.write(b);
+            if (b.hasRemaining()) {
+                // Not fully written; keep OP_WRITE set
                 return;
             }
             outbound.poll();
         }
 
-        // If fully handed over to ONLINE, we periodically send our ACK
+        // If we're ONLINE, periodically ACK
         if (state == HandshakeState.ONLINE) {
             enqueue(key, RESPUtils.buildCommand(
                     List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
             return;
         }
 
-        // No more to write right now
+        // Otherwise, back to reading and wait for next handshake reply
         key.interestOps(SelectionKey.OP_READ);
     }
 
-    private void processResponse(SelectionKey key, Object response) throws IOException {
-        // Advance the handshake state machine based on the replies
+    private void processResponse(SelectionKey key, Object resp) throws IOException {
+        // Handshake state transitions, only enqueue the *one* next frame.
         switch (state) {
             case PING:
-                state = HandshakeState.REPLCONF_PORT;
+                // Expecting +PONG
+                if (resp instanceof String && "PONG".equals(resp)) {
+                    state = HandshakeState.REPLCONF_PORT;
+                    enqueue(key, RESPUtils.buildCommand(
+                            List.of("REPLCONF", "listening-port", String.valueOf(myPort))));
+                }
                 break;
+
             case REPLCONF_PORT:
-                state = HandshakeState.REPLCONF_CAPA;
+                // Expecting +OK to port
+                if (resp instanceof String && "OK".equals(resp)) {
+                    state = HandshakeState.REPLCONF_CAPA;
+                    enqueue(key, RESPUtils.buildCommand(
+                            List.of("REPLCONF", "capa", "psync2")));
+                }
                 break;
+
             case REPLCONF_CAPA:
-                state = HandshakeState.PSYNC_FULLRESYNC;
+                // Expecting +OK to capa
+                if (resp instanceof String && "OK".equals(resp)) {
+                    state = HandshakeState.PSYNC_FULLRESYNC;
+                    enqueue(key, RESPUtils.buildCommand(
+                            List.of("PSYNC", "?", "-1")));
+                }
                 break;
+
             case PSYNC_FULLRESYNC:
-                state = HandshakeState.PSYNC_RDB;
+                // Expecting +FULLRESYNC <runid> <offset>
+                if (resp instanceof String && ((String)resp).startsWith("FULLRESYNC")) {
+                    state = HandshakeState.PSYNC_RDB;
+                    // The tester will now send the bulk-RDB; we just wait for it
+                }
                 break;
+
             case PSYNC_RDB:
+                // After reading the $<len>\r\n<data>\r\n, parser returns the data as a byte[] or String.
+                // At that point we transition ONLINE.
                 state = HandshakeState.ONLINE;
                 System.out.println("Replica is now ONLINE.");
                 break;
+
             case ONLINE:
-                // Once online, handle incoming GETACK or commands
-                if (response instanceof List) {
+                // Handle GETACK or commands
+                if (resp instanceof List) {
                     @SuppressWarnings("unchecked")
-                    List<String> args = (List<String>) response;
+                    List<String> args = (List<String>) resp;
                     String cmd = args.get(0).toUpperCase();
                     if ("REPLCONF".equals(cmd) && "GETACK".equalsIgnoreCase(args.get(1))) {
-                        // enqueue an immediate ACK reply
                         enqueue(key, RESPUtils.buildCommand(
                                 List.of("REPLCONF", "ACK", Long.toString(replicationOffset))));
                     } else {
