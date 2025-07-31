@@ -19,7 +19,7 @@ public class KeyValueStore {
     // Use 'long' for expiry to match the SET PX command
     public void set(String key, String value, long expiryMs) {
         Instant setTime = Instant.now();
-        store.put(key, new ValueWithExpiry(value, (int)expiryMs, setTime));
+        store.put(key, new ValueWithExpiry(value, expiryMs, setTime));
     }
 
     public String get(String key) {

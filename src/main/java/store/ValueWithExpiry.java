@@ -5,7 +5,7 @@ import java.time.Instant;
 
 public class ValueWithExpiry {
     private final String value;
-    private final Integer expiryMillis;
+    private final long expiryMillis;
     private final Instant createdAt;
 
     public ValueWithExpiry(String value, Integer time, Instant setTime) {
