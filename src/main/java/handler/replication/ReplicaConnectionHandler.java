@@ -89,30 +89,35 @@ public class ReplicaConnectionHandler implements Runnable {
     }
 
     private void completeHandShake4(OutputStream out, InputStream in) throws IOException {
-        // ... (code to send PSYNC)
+        // Send PSYNC ? -1
+        List<String> req = List.of("PSYNC", "?", "-1");
+        out.write(RESPUtils.buildCommand(req));
+        out.flush();
 
         // Log what is read for the FULLRESYNC line
         String fullResyncResponse = readLine(in);
         System.out.println("REPLICA READ LINE: " + fullResyncResponse);
         if (!fullResyncResponse.startsWith("+FULLRESYNC")) {
-            // ...
+            throw new IOException("Handshake4 failed, expected +FULLRESYNC, got: " + fullResyncResponse);
         }
 
         // Log the RDB header read
         int dollar = in.read();
         System.out.println("REPLICA READ CHAR: " + (char)dollar);
+        if (dollar != '$') {
+            throw new IOException("Expected '$' for RDB bulk, got: " + (char)dollar);
+        }
         String lenLine = readLine(in);
         System.out.println("REPLICA READ LINE: " + lenLine);
         int len = Integer.parseInt(lenLine);
         System.out.println("REPLICA PARSED RDB LENGTH: " + len);
 
-        // This is the most important part.
-        // Let's read the RDB bytes and log how many we actually got.
+        // Correctly read exactly 'len' bytes for the RDB payload
         byte[] rdbBuffer = new byte[len];
-        int bytesRead = in.read(rdbBuffer, 0, len);
+        int bytesRead = in.readNBytes(rdbBuffer, 0, len);
         System.out.println("REPLICA ATTEMPTED TO READ " + len + " RDB BYTES, ACTUALLY READ: " + bytesRead);
 
-        // The handshake is now complete.
+        // The handshake is now complete. The stream is correctly positioned.
     }
 
     private String readLine(InputStream in) throws IOException {
