@@ -17,41 +17,42 @@ public class PSYNCcommand implements Command {
         String replicationId = ServerConfig.getMaster_replid();
         String fullResync = "+FULLRESYNC " + replicationId + " 0\r\n";
 
-        // Log and write FULLRESYNC
+        // Log and write FULLRESYNC, ensuring it's fully sent
         System.out.println("MASTER SENDING: " + fullResync.replace("\r\n", "\\r\\n"));
-        clientChannel.write(ByteBuffer.wrap(fullResync.getBytes()));
+        fullyWrite(clientChannel, ByteBuffer.wrap(fullResync.getBytes()));
 
         sendEmptyRDB(clientChannel);
 
         return null;
     }
 
-
     private void sendEmptyRDB(SocketChannel clientChannel) throws IOException {
         byte[] rdbBytes = hexToBytes(RDB_HEX);
         String header = "$" + rdbBytes.length + "\r\n";
 
-        // Log and write the RDB header
+        // Log and write the RDB header, ensuring it's fully sent
         System.out.println("MASTER SENDING HEADER: " + header.replace("\r\n", "\\r\\n"));
-        clientChannel.write(ByteBuffer.wrap(header.getBytes()));
+        fullyWrite(clientChannel, ByteBuffer.wrap(header.getBytes()));
 
-        // Log and write the RDB content
+        // Log and write the RDB content, ensuring it's fully sent
         System.out.println("MASTER SENDING RDB BYTES of length: " + rdbBytes.length);
-        clientChannel.write(ByteBuffer.wrap(rdbBytes));
+        fullyWrite(clientChannel, ByteBuffer.wrap(rdbBytes));
+    }
+
+    // Helper method to ensure the entire buffer is written to the channel
+    private void fullyWrite(SocketChannel channel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            channel.write(buffer);
+        }
     }
 
     private byte[] hexToBytes(String hex) {
         int len = hex.length();
         byte[] data = new byte[len / 2];
-
         for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte)
-                    ((Character.digit(hex.charAt(i), 16) << 4)
-                            + Character.digit(hex.charAt(i + 1), 16));
+            data[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
+                    + Character.digit(hex.charAt(i + 1), 16));
         }
-
         return data;
     }
-
-
 }
