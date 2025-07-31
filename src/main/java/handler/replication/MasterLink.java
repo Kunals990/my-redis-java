@@ -229,72 +229,66 @@ public class MasterLink {
      */
     private String readBulkString(ByteBuffer buf) {
         buf.mark();
+        // Check for '$'
         if (!buf.hasRemaining() || buf.get() != '$') {
             buf.reset();
             return null;
         }
 
+        // Read the length
         Integer len = readIntCRLF(buf);
         if (len == null) {
             buf.reset();
             return null;
         }
-        if (len == -1) { // Null bulk string
+        if (len == -1) { // This handles RESP's "Null Bulk String" ($-1\r\n)
             return null;
         }
 
-        if (buf.remaining() < len + 2) { // not all data + CRLF yet
+        // Check if the full data payload plus the trailing CRLF are in the buffer
+        if (buf.remaining() < len + 2) {
             buf.reset();
             return null;
         }
 
+        // Read the data and the trailing CRLF
         byte[] data = new byte[len];
         buf.get(data);
-        // consume trailing CRLF
-        if (buf.get() != '\r' || buf.get() != '\n') {
-            // Malformed, but we can't un-read the data. For the scope of this project, we assume valid protocol.
-            // In a real-world scenario, you'd handle this protocol error more gracefully.
-        }
+        buf.get(); // consume \r
+        buf.get(); // consume \n
+
         return new String(data, StandardCharsets.UTF_8);
     }
 
     /**
-     * Read an integer until CRLF (no leading ':' or other markers).
+     * Read an integer until CRLF. This is a general helper.
      * Returns null if incomplete, after resetting the buffer position.
      */
     private Integer readIntCRLF(ByteBuffer buf) {
         buf.mark();
         StringBuilder sb = new StringBuilder();
-        boolean isNegative = false;
-
-        if (buf.hasRemaining()) {
-            char firstChar = (char) buf.get();
-            if (firstChar == '-') {
-                isNegative = true;
-            } else {
-                sb.append(firstChar);
-            }
-        }
-
         while (buf.hasRemaining()) {
             char c = (char) buf.get();
             if (c == '\r') {
-                if (buf.hasRemaining() && buf.get() == '\n') {
-                    try {
-                        int value = Integer.parseInt(sb.toString());
-                        return isNegative ? -value : value;
-                    } catch (NumberFormatException e) {
-                        buf.reset();
-                        return null;
-                    }
-                } else {
+                if (!buf.hasRemaining()) {
+                    // Incomplete CRLF
                     buf.reset();
+                    return null;
+                }
+                // Consume the \n
+                buf.get();
+                // We found the end of the line, parse the integer
+                try {
+                    return Integer.parseInt(sb.toString());
+                } catch (NumberFormatException e) {
+                    // Protocol error
                     return null;
                 }
             }
             sb.append(c);
         }
 
+        // No CRLF found, so the line is incomplete
         buf.reset();
         return null;
     }
