@@ -14,13 +14,17 @@ import java.util.List;
 
 public class GetAckBroadcaster implements Runnable {
 
+    // Define a grace period in milliseconds. 500ms is a safe value.
+    private static final long GRACE_PERIOD_MS = 500;
+
     @Override
     public void run() {
         Selector selector = SelectorRegistry.getSelector();
 
         while (true) {
             try {
-                Thread.sleep(200); // Wait a bit
+                // The sleep interval can be shorter now.
+                Thread.sleep(100);
 
                 List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
                 if (replicas.isEmpty()) {
@@ -31,24 +35,35 @@ public class GetAckBroadcaster implements Runnable {
                 byte[] getAckBytes = getAck.getBytes();
 
                 for (ReplicaInfo replica : replicas) {
-                    if (replica.getState() == ReplicaInfo.ReplicaState.ONLINE) {
+                    if (replica.getState() != ReplicaInfo.ReplicaState.ONLINE) {
+                        continue;
+                    }
+
+                    // Check if the grace period has passed since the last activity
+                    long timeSinceLastActivity = System.currentTimeMillis() - replica.getLastActivityTime();
+
+                    if (timeSinceLastActivity > GRACE_PERIOD_MS) {
                         SocketChannel replicaChannel = replica.getChannel();
 
-                        // 1. Add the command to the queue
+                        // Queue the GETACK command
                         replica.getWriteQueue().add(ByteBuffer.wrap(getAckBytes));
 
-                        // 2. Signal the main selector that this channel has data to write
+                        // IMPORTANT: Update the activity time so we don't spam it
+                        replica.setLastActivityTime(System.currentTimeMillis());
+
+                        // Signal the main selector
                         SelectionKey key = replicaChannel.keyFor(selector);
                         if (key != null && key.isValid()) {
                             key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
                         }
                     }
                 }
-                // After queueing all ACKs, wake up the selector
+                // Wake up the selector if any work was queued
                 selector.wakeup();
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                System.out.println("GetAckBroadcaster interrupted.");
                 break;
             }
         }

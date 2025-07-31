@@ -48,6 +48,7 @@ public class PSYNCcommand implements Command {
 
         // 4. Update the replica's state. The data will be sent by the event loop.
         replica.setState(ReplicaInfo.ReplicaState.ONLINE);
+        replica.setLastActivityTime(System.currentTimeMillis());
         System.out.println("Replica at port " + replica.getListeningPort() + " is now ONLINE.");
 
         // No direct response is returned; the event loop handles writing

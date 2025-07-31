@@ -2,7 +2,6 @@ package handler.replication;
 
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -14,16 +13,28 @@ public class ReplicaInfo {
     }
 
     private final SocketChannel channel;
-    private Queue<ByteBuffer> writeQueue = new ConcurrentLinkedQueue<>();
+    private final Queue<ByteBuffer> writeQueue = new ConcurrentLinkedQueue<>();
     private final int listeningPort;
     private volatile long replicationOffset = 0;
     private volatile ReplicaState state;
+    private volatile long lastActivityTime; // <-- ADD THIS
 
     public ReplicaInfo(SocketChannel channel, int listeningPort) {
         this.channel = channel;
         this.listeningPort = listeningPort;
-        this.state=ReplicaState.CONNECTING;
+        this.state = ReplicaState.CONNECTING;
+        this.lastActivityTime = System.currentTimeMillis(); // <-- ADD THIS
     }
+
+    public long getLastActivityTime() { // <-- ADD THIS
+        return lastActivityTime;
+    }
+
+    public void setLastActivityTime(long lastActivityTime) { // <-- ADD THIS
+        this.lastActivityTime = lastActivityTime;
+    }
+
+    // ... all other existing getters and setters remain the same ...
 
     public ReplicaState getState() {
         return state;
