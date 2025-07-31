@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.logging.Logger;
 
 public class ReplicaConnectionHandler implements Runnable {
-
     private static final Logger logger = Logger.getLogger(ReplicaConnectionHandler.class.getName());
     private final String masterHost;
     private final int masterPort;
@@ -34,50 +33,74 @@ public class ReplicaConnectionHandler implements Runnable {
         try (Socket socket = new Socket(masterHost, masterPort)) {
             OutputStream out = socket.getOutputStream();
             InputStream in = new BufferedInputStream(socket.getInputStream());
-            RESPParser parser = new RESPParser(in);
 
-            // --- Robust Handshake Logic with Validation ---
-
+            // --- Phase 1: Simple Handshake using a dedicated reader ---
             // 1. PING
             out.write(RESPUtils.buildCommand(List.of("PING")));
             out.flush();
-            Object pongResponse = parser.parse();
-            if (!"+PONG".equalsIgnoreCase(pongResponse.toString())) {
-                throw new IOException("Handshake failed: Did not receive PONG. Got: " + pongResponse);
-            }
+            readHandshakeResponse(in, "+PONG");
 
             // 2. REPLCONF listening-port
             out.write(RESPUtils.buildCommand(List.of("REPLCONF", "listening-port", String.valueOf(this.myPort))));
             out.flush();
-            Object ok1Response = parser.parse();
-            if (!"+OK".equalsIgnoreCase(ok1Response.toString())) {
-                throw new IOException("Handshake failed: Did not receive OK for REPLCONF port. Got: " + ok1Response);
-            }
+            readHandshakeResponse(in, "+OK");
 
             // 3. REPLCONF capa psync2
             out.write(RESPUtils.buildCommand(List.of("REPLCONF", "capa", "psync2")));
             out.flush();
-            Object ok2Response = parser.parse();
-            if (!"+OK".equalsIgnoreCase(ok2Response.toString())) {
-                throw new IOException("Handshake failed: Did not receive OK for REPLCONF capa. Got: " + ok2Response);
-            }
+            readHandshakeResponse(in, "+OK");
 
             // 4. PSYNC
             out.write(RESPUtils.buildCommand(List.of("PSYNC", "?", "-1")));
             out.flush();
-            Object fullResyncResponse = parser.parse();
-            if (!(fullResyncResponse instanceof String) || !((String) fullResyncResponse).toUpperCase().startsWith("+FULLRESYNC")) {
-                throw new IOException("Handshake failed: Did not receive FULLRESYNC. Got: " + fullResyncResponse);
-            }
-            parser.parse(); // Consume the RDB file bytes and ignore them.
+            readHandshakeResponse(in, "+FULLRESYNC");
 
-            // --- Handshake complete, stream is now synchronized ---
+            // 5. Read and discard the RDB file
+            readRDBFile(in);
+
+            // --- Phase 2: Handshake complete, switch to robust parser for main loop ---
+            RESPParser parser = new RESPParser(in);
             startCommandReplicationLoop(out, parser);
 
         } catch (Throwable t) {
             System.err.println("REPLICA: CRITICAL ERROR IN REPLICA THREAD");
             t.printStackTrace(System.err);
         }
+    }
+
+    // A simple, dedicated reader for the predictable handshake responses.
+    private void readHandshakeResponse(InputStream in, String expectedPrefix) throws IOException {
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        int b;
+        while ((b = in.read()) != -1) {
+            bout.write(b);
+            if (bout.size() >= 2 && bout.toByteArray()[bout.size() - 2] == '\r' && bout.toByteArray()[bout.size() - 1] == '\n') {
+                break;
+            }
+        }
+        String response = bout.toString(StandardCharsets.UTF_8).trim();
+        if (!response.toUpperCase().startsWith(expectedPrefix)) {
+            throw new IOException("Handshake failed. Expected " + expectedPrefix + " but got " + response);
+        }
+    }
+
+    // A dedicated method to read and discard the RDB file payload.
+    private void readRDBFile(InputStream in) throws IOException {
+        int type = in.read();
+        if (type != '$') {
+            throw new IOException("Expected '$' for RDB file, got: " + (char)type);
+        }
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        int b;
+        while ((b = in.read()) != -1) {
+            if (b == '\r') {
+                in.read(); // consume LF
+                break;
+            }
+            bout.write(b);
+        }
+        int length = Integer.parseInt(bout.toString());
+        in.readNBytes(length); // Read and discard the RDB payload
     }
 
     private void startCommandReplicationLoop(OutputStream out, RESPParser parser) throws IOException {
@@ -110,7 +133,8 @@ public class ReplicaConnectionHandler implements Runnable {
         }
     }
 
-    // The RESPParser inner class is correct and does not need changes.
+    // The robust RESPParser is now only used for the main command loop.
+    // It is correct and does not need changes.
     class RESPParser {
         private final InputStream in;
         private long bytesReadSinceLastCommand = 0;
@@ -151,7 +175,7 @@ public class ReplicaConnectionHandler implements Runnable {
             for (int i = 0; i < count; i++) {
                 Object item = _parse();
                 if (item instanceof String) {
-                    list.add(((String) item).substring(1)); // Remove the '+' prefix
+                    list.add(((String) item).substring(1));
                 } else if (item instanceof byte[]) {
                     list.add(new String((byte[]) item, StandardCharsets.UTF_8));
                 }
