@@ -39,7 +39,7 @@ public class ReplicaConnectionHandler implements Runnable {
             System.out.println("REPLICA: Socket connected to master at " + masterHost + ":" + masterPort); // <-- ADD THIS
 
             OutputStream out = socket.getOutputStream();
-            InputStream in = socket.getInputStream();
+            InputStream in = new BufferedInputStream(socket.getInputStream());
 
             completeHandShake1(out, in);
             System.out.println("REPLICA: Handshake 1 (PING) complete."); // <-- ADD THIS
