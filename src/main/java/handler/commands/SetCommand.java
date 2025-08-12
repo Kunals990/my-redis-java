@@ -1,67 +1,34 @@
 package handler.commands;
 
-import config.ServerConfig;
 import handler.Command;
-import handler.SelectorRegistry;
-import handler.replication.ReplicaInfo;
-import handler.replication.ReplicaManager;
 import store.KeyValueStore;
-import util.RESPUtils;
-import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
+
 import java.nio.channels.SocketChannel;
 import java.util.List;
 
 public class SetCommand implements Command {
+
+    KeyValueStore store = KeyValueStore.getInstance();
+
     @Override
     public String execute(List<String> args, SocketChannel clientChannel) {
-        if (args.size() < 3) {
-            return "-ERR wrong number of arguments for 'set'\r\n";
-        }
-        System.out.println("In replica"+args);
-        final String key = args.get(1);
-        final String value = args.get(2);
-        long px = -1;
 
-        if (args.size() > 3) {
-            for (int i = 3; i < args.size(); i++) {
-                if ("px".equalsIgnoreCase(args.get(i)) && i + 1 < args.size()) {
-                    px = Long.parseLong(args.get(i + 1));
-                    i++;
-                }
+        if (args.size() < 3) return "-ERR wrong number of arguments for 'set'\r\n";
+
+        int expiry = -1; // -1 means no expiry
+
+        if (args.size() == 5 && args.get(3).equalsIgnoreCase("PX")) {
+            try {
+                expiry = Integer.parseInt(args.get(4));
+            } catch (NumberFormatException e) {
+                return "-ERR PX value is not a valid integer\r\n";
             }
         }
-        System.out.println("before keyval");
-        KeyValueStore.getInstance().set(key, value, px);
-        System.out.println("after keyval");
 
-        if (ServerConfig.isMaster()) {
-            propagateToReplicas(args);
-            return "+OK\r\n";
-        } else {
-            return null;
-        }
-    }
+        String key = args.get(1);
+        String value = args.get(2);
 
-    private void propagateToReplicas(List<String> args) {
-        List<ReplicaInfo> replicas = ReplicaManager.getReplicas();
-        if (replicas.isEmpty()) {
-            return;
-        }
-        byte[] commandBytes = RESPUtils.buildCommand(args);
-        ServerConfig.incrementMasterOffset(commandBytes.length);
-
-        for (ReplicaInfo replica : replicas) {
-            if (replica.getState() == ReplicaInfo.ReplicaState.ONLINE) {
-                replica.getWriteQueue().add(ByteBuffer.wrap(commandBytes));
-                SelectionKey key = replica.getChannel().keyFor(SelectorRegistry.getSelector());
-                if (key != null && key.isValid()) {
-                    synchronized (key) {
-                        key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
-                    }
-                }
-            }
-        }
-        SelectorRegistry.getSelector().wakeup();
+        store.set(key,value,expiry);
+        return "+OK\r\n";
     }
 }

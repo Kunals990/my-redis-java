@@ -1,18 +1,15 @@
 package store;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap; // <-- Import this
 
 public class KeyValueStore {
     private static final KeyValueStore INSTANCE = new KeyValueStore();
 
-    static {
-        System.out.println("--- KeyValueStore Singleton Initialized at " + System.currentTimeMillis() + " ---");
-    }
-
-    // Use ConcurrentHashMap for thread-safe operations
-    private final Map<String, ValueWithExpiry> store = new ConcurrentHashMap<>(); // <-- The fix
+    private final Map<String, ValueWithExpiry> store = new HashMap<>();
 
     private KeyValueStore() {}
 
@@ -20,20 +17,20 @@ public class KeyValueStore {
         return INSTANCE;
     }
 
-    public void set(String key, String value, long expiryMs) {
-        System.out.println("in keyval");
+    public void set(String key, String value,Integer time) {
         Instant setTime = Instant.now();
-        store.put(key, new ValueWithExpiry(value, expiryMs, setTime));
+        store.put(key,new ValueWithExpiry(value,time,setTime));
     }
 
     public String get(String key) {
+
         ValueWithExpiry pair = store.get(key);
-        if (pair == null) {
-            return null;
-        }
+        if(pair==null) return null;
+
+        if(!pair.isExpiryPresent()) return pair.getValue();
 
         if (pair.isExpired()) {
-            store.remove(key, pair); // More robust concurrent removal
+            store.remove(key);
             return null;
         }
         return pair.getValue();

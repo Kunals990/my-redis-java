@@ -5,10 +5,10 @@ import java.time.Instant;
 
 public class ValueWithExpiry {
     private final String value;
-    private final long expiryMillis;
+    private final Integer expiryMillis;
     private final Instant createdAt;
 
-    public ValueWithExpiry(String value, long time, Instant setTime) {
+    public ValueWithExpiry(String value, Integer time, Instant setTime) {
         this.value = value;
         this.expiryMillis = time;
         this.createdAt = setTime;

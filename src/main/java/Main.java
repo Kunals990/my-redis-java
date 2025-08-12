@@ -1,173 +1,97 @@
-import config.ServerConfig;
+import handler.BlockedClientTimeoutChecker;
 import handler.CommandHandler;
-import handler.SelectorRegistry;
-import handler.WaitClientTimeoutChecker;
-import handler.replication.*;
 import protocols.RESPParser;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class Main {
-    private static final Map<SocketChannel, ByteBuffer> clientBuffers = new ConcurrentHashMap<>();
-
     public static void main(String[] args) throws IOException {
-        // ... Argument parsing is the same ...
         int port = 6379;
-        String masterHost = null;
-        int masterPort = -1;
 
-        for (int i = 0; i < args.length; i++) {
-            if (args[i].equals("--port") && i + 1 < args.length) {
-                port = Integer.parseInt(args[i + 1]);
-                i++;
-            } else if (args[i].equals("--replicaof") && i + 1 < args.length) {
-                String[] parts = args[i + 1].split(" ");
-                masterHost = parts[0];
-                masterPort = Integer.parseInt(parts[1]);
-                i++;
-            }
-        }
-
-        // Assume args are parsed here
+        // Step 1: Setup non-blocking server socket channel
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
         serverChannel.socket().bind(new InetSocketAddress(port));
         System.out.println("Event-loop server started on port " + port);
 
+        // Step 2: Register server socket with selector for accept events
         Selector selector = Selector.open();
-        SelectorRegistry.setSelector(selector);
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-        if (masterHost != null && masterPort != -1) {
-            ServerConfig.setRole("slave");
-            // Initiate the non-blocking connection to the master
-            new MasterLink(masterHost, masterPort, port, selector);
-        } else {
-            ServerConfig.setRole("master");
-        }
+        BlockedClientTimeoutChecker timeoutChecker = new BlockedClientTimeoutChecker();
+        timeoutChecker.start();
 
-        // Background threads for master functionality
-        if (ServerConfig.isMaster()) {
-            new Thread(new WaitClientTimeoutChecker()).start();
-        }
-
-        // --- THE UNIFIED EVENT LOOP ---
+        // Step 3: Event loop
         while (true) {
-            selector.select();
+            selector.select(); // Wait until some channels are ready
+
             Set<SelectionKey> selectedKeys = selector.selectedKeys();
             Iterator<SelectionKey> iter = selectedKeys.iterator();
 
             while (iter.hasNext()) {
                 SelectionKey key = iter.next();
-                iter.remove();
-                if (!key.isValid()) continue;
+                iter.remove(); // Always remove the key once handled
 
-                try {
-                    if (key.isAcceptable()) {
-                        // A new client is connecting to us
-                        handleAcceptable(key, selector);
-                    } else if (key.isConnectable()) {
-                        // Our connection to the master is ready
-                        ((MasterLink) key.attachment()).handleConnect(key);
-                    } else if (key.isReadable()) {
-                        Object attachment = key.attachment();
-                        if (attachment instanceof MasterLink) {
-                            // Data is coming from the master
-                            ((MasterLink) attachment).handleRead(key);
-                        } else {
-                            // Data is coming from a normal client
-                            handleClientRead(key);
-                        }
-                    } else if (key.isWritable()) {
-                        Object attachment = key.attachment();
-                        if (attachment instanceof MasterLink) {
-                            // We are ready to send an ACK to the master
-                            ((MasterLink) attachment).handleWrite(key);
-                        } else {
-                            // We are ready to send propagated data to a replica
-                            handleReplicaWrite(key);
-                        }
+                // Accept new client connection
+                if (key.isAcceptable()) {
+                    ServerSocketChannel server = (ServerSocketChannel) key.channel();
+                    SocketChannel clientChannel = server.accept();
+
+                    if (clientChannel != null) {
+                        clientChannel.configureBlocking(false);
+                        clientChannel.register(selector, SelectionKey.OP_READ);
+                        System.out.println("Accepted new client: " + clientChannel.getRemoteAddress());
                     }
-                } catch (IOException e) {
-                    cleanupConnection(key);
+                }
+
+                // Read data from client
+                if (key.isReadable()) {
+                    SocketChannel clientChannel = (SocketChannel) key.channel();
+                    ByteBuffer buffer = ByteBuffer.allocate(1024);
+
+                    int bytesRead = -1;
+                    try {
+                        bytesRead = clientChannel.read(buffer);
+                    } catch (IOException e) {
+                        // Client closed unexpectedly
+                        key.cancel();
+                        clientChannel.close();
+                        continue;
+                    }
+
+                    if (bytesRead == -1) {
+                        // Client closed connection
+                        System.out.println("Client disconnected: " + clientChannel.getRemoteAddress());
+                        key.cancel();
+                        clientChannel.close();
+                        continue;
+                    }
+
+                    // Process the input
+                    buffer.flip();
+                    String input = new String(buffer.array(), 0, buffer.limit()).trim();
+                    System.out.println("Received: " + input);
+
+                    try{
+                        List<String> commandParts = RESPParser.parse(input);
+                        System.out.println("Parsed command: "+commandParts);
+
+                        String response = CommandHandler.handle(commandParts,clientChannel);
+                        if (response != null) {
+                            clientChannel.write(ByteBuffer.wrap(response.getBytes()));
+                        }
+
+                    } catch (RuntimeException e) {
+                        throw new RuntimeException(e);
+                    }
                 }
             }
-        }
-    }
-
-    private static void handleAcceptable(SelectionKey key, Selector selector) throws IOException {
-        ServerSocketChannel server = (ServerSocketChannel) key.channel();
-        SocketChannel clientChannel = server.accept();
-        clientChannel.configureBlocking(false);
-        clientChannel.register(selector, SelectionKey.OP_READ);
-        clientBuffers.put(clientChannel, ByteBuffer.allocate(1024));
-    }
-
-    private static void handleClientRead(SelectionKey key) throws IOException {
-        SocketChannel clientChannel = (SocketChannel) key.channel();
-        ByteBuffer buffer = clientBuffers.get(clientChannel);
-        int bytesRead = clientChannel.read(buffer);
-        if (bytesRead == -1) {
-            cleanupConnection(key);
-            return;
-        }
-
-        buffer.flip();
-        RESPParser parser = new RESPParser(buffer);
-        while (buffer.hasRemaining()) {
-            Object parsed = parser.parse();
-            if (parsed instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<String> commandParts = (List<String>) parsed;
-                String response = CommandHandler.handle(commandParts, clientChannel);
-                if (response != null) {
-                    clientChannel.write(ByteBuffer.wrap(response.getBytes()));
-                }
-            } else {
-                // either null (incomplete) or a non-array frame (e.g. simple string/int),
-                // so we stop parsing client commands here
-                break;
-            }
-        }
-        buffer.compact();
-    }
-
-    private static void handleReplicaWrite(SelectionKey key) throws IOException {
-        // This is for when WE are the master, writing to our replicas
-        SocketChannel channel = (SocketChannel) key.channel();
-        ReplicaInfo replica = ReplicaManager.getReplicaByChannel(channel);
-        if (replica != null) {
-            ByteBuffer buffer;
-            while ((buffer = replica.getWriteQueue().peek()) != null) {
-                channel.write(buffer);
-                if (buffer.hasRemaining()) return;
-                replica.getWriteQueue().poll();
-            }
-            if (replica.getWriteQueue().isEmpty()) {
-                key.interestOps(SelectionKey.OP_READ);
-            }
-        }
-    }
-
-    private static void cleanupConnection(SelectionKey key) {
-        try {
-            SocketChannel channel = (SocketChannel) key.channel();
-            clientBuffers.remove(channel);
-            key.cancel();
-            channel.close();
-        } catch (Exception e) {
-            // Ignore
         }
     }
 }
