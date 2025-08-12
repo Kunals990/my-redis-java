@@ -23,6 +23,7 @@ public class MasterLink {
     private final ByteBuffer readBuffer = ByteBuffer.allocate(1024);
     private long replicationOffset = 0;
     private final Deque<ByteBuffer> outbound = new ArrayDeque<>();
+    private String replicationId = "?";
 
     private enum HandshakeState {
         PING, REPLCONF_PORT, REPLCONF_CAPA, PSYNC, RECEIVING_RDB, ONLINE
@@ -211,16 +212,46 @@ public class MasterLink {
         buf.reset(); return null;
     }
 
-    private String readBulkString(ByteBuffer buf) {
+    private Object readBulkString(ByteBuffer buf) {
         buf.mark();
         if (!buf.hasRemaining() || buf.get() != '$') { buf.reset(); return null; }
         Integer len = readIntCRLF(buf);
         if (len == null) { buf.reset(); return null; }
         if (len == -1) return null;
+
+        // Check if there are enough bytes for the entire bulk string
         if (buf.remaining() < len + 2) { buf.reset(); return null; }
-        byte[] data = new byte[len]; buf.get(data);
-        buf.get(); buf.get();
-        return new String(data, StandardCharsets.UTF_8);
+
+        // RDB file handling
+        if (state == HandshakeState.RECEIVING_RDB) {
+            byte[] data = new byte[len];
+            buf.get(data);
+            buf.get(); buf.get(); // Skip CRLF
+
+            // Process RDB file
+            state = HandshakeState.ONLINE;
+            System.out.println("Replica is now ONLINE.");
+
+            // Send initial ACK immediately after processing RDB
+            try {
+                byte[] ackCommand = RESPUtils.buildCommand(
+                        List.of("REPLCONF", "ACK", String.valueOf(replicationOffset)));
+                outbound.add(ByteBuffer.wrap(ackCommand));
+                SelectionKey key = channel.keyFor(selector);
+                key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+                selector.wakeup();
+            } catch (Exception e) {
+                System.err.println("Error sending initial ACK: " + e.getMessage());
+            }
+
+            return data;
+        } else {
+            // Normal bulk string handling
+            byte[] data = new byte[len];
+            buf.get(data);
+            buf.get(); buf.get(); // Skip CRLF
+            return new String(data, StandardCharsets.UTF_8);
+        }
     }
 
     private Integer readIntCRLF(ByteBuffer buf) {
